@@ -1,0 +1,40 @@
+backend/__pycache__/
+backend/venv/
+frontend/node_modules/
+frontend/dist/
+.git/
+.gitignore
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+
+# Git
+.git/
+.gitignore
+
+# Variables de entorno
+.env
+.env.*
+
+# Python
+backend/__pycache__/
+backend/venv/
+backend/.venv/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema
+.DS_Store
+Thumbs.db

@@ -1,0 +1,80 @@
+services:
+  postgres-wss:
+    image: ${POSTGRES_IMAGE}
+    container_name: ${POSTGRES_CONTAINER_NAME}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_wss_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - wss-network
+
+  orthanc-wss:
+    image: ${ORTHANC_IMAGE}
+    container_name: ${ORTHANC_CONTAINER_NAME}
+    restart: unless-stopped
+    environment:
+      ORTHANC__REGISTERED_USERS: ${ORTHANC_REGISTERED_USERS}
+    ports:
+      - "8042:8042"
+    volumes:
+      - orthanc_data:/var/lib/orthanc/db
+    networks:
+      - wss-network
+
+  backend-wss:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ${BACKEND_CONTAINER_NAME}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      ORTHANC_URL: ${ORTHANC_URL}
+    depends_on:
+      postgres-wss:
+        condition: service_healthy
+      orthanc-wss:
+        condition: service_started
+    ports:
+      - "${BACKEND_BIND_IP}:${BACKEND_PORT_HOST}:${BACKEND_PORT_CONTAINER}"
+    networks:
+      - wss-network
+
+  frontend-wss:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+
+        VITE_BACKEND_URL: ${BACKEND_URL}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+    container_name: frontend-wss
+    restart: unless-stopped
+    depends_on:
+      backend-wss:
+        condition: service_started
+    ports:
+      - "127.0.0.1:5173:80"
+    networks:
+      - wss-network
+
+volumes:
+  postgres_wss_data:
+  orthanc_data:
+
+networks:
+  wss-network:
+    name: ${WSS_NETWORK_NAME}
+    driver: bridge
