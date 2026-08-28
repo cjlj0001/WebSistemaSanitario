@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import ResultBox from "../result/ResultBox"
 import api from "../../servicio/api"
 import { downloadSingleImage } from "./imageDownloadUtils"
+import { getUserIdentifierLabel } from "../user/userIdentifier"
 import { Brain, CalendarDays, Download, IdCard, Image as ImageIcon, Maximize2, Pencil, Trash2, User } from "lucide-react"
 
 function buildPreviewUrl(imageId) { return imageId ? `${api.defaults.baseURL}/medicalImages/${encodeURIComponent(imageId)}/preview` : "" }
@@ -17,8 +18,40 @@ export default function ImageCard({ item, onOpenPreview = null, onDelete }) {
       ? "Anotación realizada por el especialista"
       : "Imagen subida por el usuario"
   const TypeIcon = isAiResult ? Brain : isManualResult ? Pencil : ImageIcon
+  const colorTheme = isAiResult
+    ? {
+        header: "from-sky-600 to-blue-600",
+        headerDetail: "text-sky-100",
+        action: "bg-sky-600 hover:bg-sky-700",
+        menuAction: "hover:bg-sky-50 hover:text-sky-700",
+      }
+    : isManualResult
+      ? {
+          header: "from-amber-500 to-orange-600",
+          headerDetail: "text-amber-100",
+          action: "bg-amber-600 hover:bg-amber-700",
+          menuAction: "hover:bg-amber-50 hover:text-amber-700",
+        }
+      : {
+          header: "from-emerald-600 to-teal-600",
+          headerDetail: "text-emerald-100",
+          action: "bg-emerald-600 hover:bg-emerald-700",
+          menuAction: "hover:bg-emerald-50 hover:text-emerald-700",
+        }
   const previewUrl = useMemo(() => buildPreviewUrl(cleanImageId), [cleanImageId])
   const [showDownloadMenu, setShowDownloadMenu] = useState(false)
+  const downloadMenuRef = useRef(null)
+
+  useEffect(() => {
+    const closeDownloadMenu = (event) => {
+      if (!downloadMenuRef.current?.contains(event.target)) {
+        setShowDownloadMenu(false)
+      }
+    }
+
+    document.addEventListener("mousedown", closeDownloadMenu)
+    return () => document.removeEventListener("mousedown", closeDownloadMenu)
+  }, [])
 
   const handleDownload = async (format) => {
     try {
@@ -30,11 +63,11 @@ export default function ImageCard({ item, onOpenPreview = null, onDelete }) {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-      <div className="relative flex items-center gap-4 bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5">
+      <div className={`relative flex items-center gap-4 bg-gradient-to-r px-6 py-5 ${colorTheme.header}`}>
         <div className="rounded-xl bg-white/15 p-3"><ImageIcon className="h-7 w-7 text-white" /></div>
         <div>
           <h2 className="text-xl font-bold text-white">Imagen médica</h2>
-          <p className="text-sm text-emerald-100">Imagen #{cleanImageId}</p>
+          <p className={`text-sm ${colorTheme.headerDetail}`}>Imagen #{cleanImageId}</p>
         </div>
         {onDelete && (
           <button type="button" onClick={() => onDelete(cleanImageId)} className="absolute right-5 top-1/2 -translate-y-1/2 rounded-lg bg-white/15 p-2.5 text-white transition hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-white" aria-label={`Borrar imagen ${cleanImageId}`} title="Borrar imagen">
@@ -45,7 +78,7 @@ export default function ImageCard({ item, onOpenPreview = null, onDelete }) {
 
       <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-6 md:grid-cols-3">
         <div className="flex items-center gap-3"><User className="h-5 w-5 text-emerald-600" /><div><p className="text-xs uppercase tracking-wide text-slate-500">Usuario</p><p className="font-medium text-slate-800">{item?.medicalImage?.nombreUsuario || "-"}</p></div></div>
-        <div className="flex items-center gap-3"><IdCard className="h-5 w-5 text-emerald-600" /><div><p className="text-xs uppercase tracking-wide text-slate-500">DNI</p><p className="font-medium text-slate-800">{item?.medicalImage?.dniUsuario || "-"}</p></div></div>
+        <div className="flex items-center gap-3"><IdCard className="h-5 w-5 text-emerald-600" /><div><p className="text-xs uppercase tracking-wide text-slate-500">{getUserIdentifierLabel(item?.medicalImage?.dniUsuario)}</p><p className="font-medium text-slate-800">{item?.medicalImage?.dniUsuario || "-"}</p></div></div>
         <div className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-emerald-600" /><div><p className="text-xs uppercase tracking-wide text-slate-500">Fecha de subida</p><p className="font-medium text-slate-800">{new Date(item?.medicalImage?.fechaSubida).toLocaleString()}</p></div></div>
       </div>
 
@@ -81,11 +114,11 @@ export default function ImageCard({ item, onOpenPreview = null, onDelete }) {
             </div>
           )}
 
-          <div className="relative mt-3">
+          <div ref={downloadMenuRef} className="relative mt-3">
             <button
               type="button"
               onClick={() => setShowDownloadMenu((visible) => !visible)}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white transition hover:bg-emerald-700"
+              className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-medium text-white transition ${colorTheme.action}`}
               aria-expanded={showDownloadMenu}
               aria-haspopup="menu"
             >
@@ -98,7 +131,7 @@ export default function ImageCard({ item, onOpenPreview = null, onDelete }) {
                 <button
                   type="button"
                   role="menuitem"
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700"
+                  className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition ${colorTheme.menuAction}`}
                   onClick={() => { setShowDownloadMenu(false); handleDownload("dicom") }}
                 >
                   <Download className="h-4 w-4" />
@@ -107,7 +140,7 @@ export default function ImageCard({ item, onOpenPreview = null, onDelete }) {
                 <button
                   type="button"
                   role="menuitem"
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700"
+                  className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition ${colorTheme.menuAction}`}
                   onClick={() => { setShowDownloadMenu(false); handleDownload("png") }}
                 >
                   <ImageIcon className="h-4 w-4" />

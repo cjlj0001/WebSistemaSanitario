@@ -138,7 +138,10 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
       canvas.height = img.height
 
       paintBaseImage()
-      requestAnimationFrame(fitToWindow)
+      requestAnimationFrame(() => {
+        setZoom(getFitZoom())
+        setOffset({ x: 0, y: 0 })
+      })
     }
 
     img.onerror = () => {
@@ -146,7 +149,7 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
     }
 
     img.src = imageUrl
-  }, [isOpen, imageUrl])
+  }, [isOpen, imageUrl]) // La carga de la imagen solo debe reiniciarse cuando cambie su origen.
 
   const getCanvasPoint = (event) => {
     const canvas = canvasRef.current
@@ -269,7 +272,7 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
     try {
       const link = document.createElement("a")
       link.href = canvas.toDataURL("image/png")
-      link.download = `imagen-${imageId || "anotada"}.png`
+      link.download = `manual_provisional_${imageId || "anotada"}.png`
       link.click()
     } catch {
       setSaveError("No se pudo exportar la imagen. Verifica CORS en el backend.")
@@ -354,7 +357,7 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
 
           <button
             onClick={onClose}
-            className="flex items-center gap-2 rounded-lg bg-white/15 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/25"
+            className="flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           >
             <X className="h-4 w-4" />
             Cerrar

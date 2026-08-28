@@ -103,7 +103,7 @@ export default function UserBox({ user, onSave, onDelete, isAlternate, showActio
             </div>
             <div className="flex flex-col">
               <span className="text-gray-500 text-xs font-medium">NACIMIENTO</span>
-              <span className="text-gray-900 font-medium">{user.fechaNacimiento}</span>
+              <span className="text-gray-900 font-medium">{user.fechaNacimiento || "No disponible"}</span>
             </div>
           </div>
 

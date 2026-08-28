@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf"
 import logoUrl from "../../assets/iconouja.png"
+import { getUserIdentifierLabel } from "../user/userIdentifier"
 
 function formatDate(value) {
   if (!value) return "-"
@@ -55,10 +56,25 @@ function flattenResultFields(result) {
     if (value == null) continue
     if (typeof value === "object") continue
 
-    output.push([key, String(value)])
+    output.push([getResultFieldLabel(key, value), String(value)])
   }
 
   return output
+}
+
+function getResultFieldLabel(key, value) {
+  const labels = {
+    id: "Identificador del resultado",
+    idUsuario: "Identificador interno del usuario",
+    dniUsuario: getUserIdentifierLabel(value),
+    observaciones: "Observaciones clínicas",
+  }
+
+  if (labels[key]) return labels[key]
+
+  return String(key)
+    .replace(/([a-záéíóúñ])([A-Z])/g, "$1 $2")
+    .replace(/^./, (character) => character.toUpperCase())
 }
 
 function blobToDataUrl(blob) {
@@ -160,26 +176,29 @@ function writeKeyValue(
       ? "-"
       : String(value)
 
-  const lines = doc.splitTextToSize(
-    `${key}: ${safeValue}`,
-    maxTextWidth
-  )
+  const lines = doc.splitTextToSize(safeValue, maxTextWidth)
 
   let y = ensurePageSpace(
     doc,
-    lines.length * 5 + 4,
+    lines.length * 5 + 8,
     cursorY,
     margin,
     pageHeight
   )
 
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(8)
+  doc.setTextColor(100, 116, 139)
+
+  doc.text(String(key).toLocaleUpperCase("es-ES"), margin, y)
+
   doc.setFont("helvetica", "normal")
   doc.setFontSize(9.5)
   doc.setTextColor(55, 65, 81)
 
-  doc.text(lines, margin, y)
+  doc.text(lines, margin, y + 4)
 
-  return y + lines.length * 5 + 1
+  return y + lines.length * 5 + 4
 }
 
 function fitImage(
@@ -662,7 +681,7 @@ export async function downloadStudyPdf({
       medicalImage?.nombreUsuario || "-",
     ],
     [
-      "DNI",
+      getUserIdentifierLabel(medicalImage?.dniUsuario),
       medicalImage?.dniUsuario || "-",
     ],
     [
@@ -793,16 +812,6 @@ export async function downloadStudyPdf({
       studyItem,
     })
   }
-
-  const safeOrthancStudyUid =
-    medicalImage?.orthancStudyUid
-      ? String(
-          medicalImage.orthancStudyUid
-        ).replace(
-          /[^a-zA-Z0-9.*-]+/g,
-          "*"
-        )
-      : "sin_uid"
 
   doc.save(`informe_${reportCode}.pdf`)
 }

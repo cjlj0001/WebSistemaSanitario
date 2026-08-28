@@ -16,7 +16,7 @@ class UserId(BaseModel):
     name: str
     dni: str
     email: str
-    fechaNacimiento: date
+    fechaNacimiento: date | None = None
     role: Literal["admin", "especialista", "usuarioBase"] = "usuarioBase"
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
@@ -36,6 +36,15 @@ class AIModelOption(BaseModel):
 class AIModelSettings(BaseModel):
     activeModelKey: str
     models: list[AIModelOption]
+    isTransitioning: bool = False
+    activeInferenceCount: int = 0
+
+
+class AIModelRuntimeStatus(BaseModel):
+    activeModelKey: str
+    activeModelLabel: str
+    isTransitioning: bool
+    activeInferenceCount: int
 
 
 class AIModelSelectionUpdate(BaseModel):
@@ -45,6 +54,8 @@ class AIModelSelectionUpdate(BaseModel):
 class GoogleLoginRequest(BaseModel):
     idToken: str
     acceptTerms: bool = False
+    # Short-lived access token obtained with Google's birthday-read scope.
+    googleAccessToken: str | None = None
 
 
 class TokenData(BaseModel):

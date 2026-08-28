@@ -29,6 +29,7 @@ def _buildMedicalImagePayload(db: Session, record):
         "modalidad": record.modalidad,
         "idResult": record.idResult,
         "specialistName": record.specialistName,
+        "isStudy": record.isStudy,
     }
 
     if getattr(record, "usuario", None):
@@ -114,7 +115,7 @@ def createMedicalImage(db: Session, userDni: str, fileObj, filename: str):
     if not imageRepository.userExistsByDni(db, userDni=userDni):
         raise ImageUserMismatchError()
 
-    from ..ai.cargarModelo import predictPil
+    from .aiRuntime import aiRuntime
 
     extension = Path(filename).suffix.lower()
 
@@ -143,7 +144,15 @@ def createMedicalImage(db: Session, userDni: str, fileObj, filename: str):
             imageForPrediction = Image.open(inputPath).convert("L")
 
         # Realizar predicción (con gradcam)
-        prediction = predictPil(imageForPrediction, output_path=gradcamPath)
+        prediction = aiRuntime.predict(imageForPrediction, outputPath=gradcamPath)
+
+        # El ranking se construye a partir de la media de probabilidades del
+        # ensemble. Usar esa misma fuente para la observación evita mostrar la
+        # confianza de un único modelo junto a un ranking agregado diferente.
+        probabilities = prediction["probabilities"]
+        observationClass, observationConfidence = max(
+            probabilities.items(), key=lambda item: item[1]
+        )
 
         user = db.query(models.User).filter(models.User.dni == userDni).first()
         if not user:
@@ -154,8 +163,8 @@ def createMedicalImage(db: Session, userDni: str, fileObj, filename: str):
             db=db,
             result=schemas.ResultCreate(
                 idUsuario=user.id,
-                observaciones=f"Predicción generada automáticamente: {prediction['class']} (confianza: {prediction['confidence']:.2%})",
-                probabilidades=prediction["probabilities"],
+                observaciones=f"Predicción generada automáticamente: {observationClass} (confianza: {observationConfidence:.2%})",
+                probabilidades=probabilities,
             ),
         )
 
@@ -275,10 +284,11 @@ def updateMedicalImageValidation(db: Session, medicalImageId: int, update: schem
     }
 
 
-def deleteMedicalImage(db: Session, imageId: int) -> bool:
-    if not imageRepository.deleteMedicalImage(db=db, medicalImageId=imageId):
+def deleteMedicalImage(db: Session, imageId: int) -> dict:
+    deletion = imageRepository.deleteMedicalImage(db=db, medicalImageId=imageId)
+    if deletion is None:
         raise MedicalImageNotFoundError()
-    return True
+    return deletion
 
 
 def deleteUnavailableMedicalImage(db: Session, imageId: int) -> bool:

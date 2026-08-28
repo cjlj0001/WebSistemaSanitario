@@ -73,6 +73,8 @@ class MedicalImage(Base):
     orthancPatientId = Column(String, nullable=False)
     modalidad = Column(String, nullable=True)
     specialistName = Column(String, nullable=True)
+    # This is a local PostgreSQL presentation flag. It never changes Orthanc.
+    isStudy = Column(Boolean, nullable=False, default=True, server_default="true")
     
     usuario = relationship("User", back_populates="medicalImages")
     result = relationship("Result", back_populates="medicalImages")

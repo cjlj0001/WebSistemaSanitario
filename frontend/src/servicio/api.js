@@ -1,7 +1,9 @@
 import axios from "axios"
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || "http://localhost:8000"
+  // In the packaged application Nginx proxies the backend routes at the same
+  // origin. An empty base avoids prefixing paths that already include /api.
+  baseURL: import.meta.env.VITE_BACKEND_URL || ""
 })
 
 api.interceptors.request.use((config) => {

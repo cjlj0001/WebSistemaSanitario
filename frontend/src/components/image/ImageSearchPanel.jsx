@@ -49,13 +49,13 @@ export default function ImageSearchPanel({
   }
 
   const anomalyOptions = [
-    "Atelectasis",
-    "Effusion",
-    "Emphysema",
-    "No finding",
-    "Nodule",
-    "Pneumonia",
-    "Pneumothorax",
+    "Atelectasia",
+    "Derrame pleural",
+    "Enfisema",
+    "Sin hallazgos",
+    "Nódulo",
+    "Neumonía",
+    "Neumotórax",
   ]
 
   const placeholder =

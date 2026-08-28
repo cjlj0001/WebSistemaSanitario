@@ -11,13 +11,13 @@ import api from "../../servicio/api"
 import { getUserRoleFromToken } from "../security/tokenRole"
 
 const DISEASE_OPTIONS = [
-    "Atelectasis",
-    "Effusion",
-    "Emphysema",
-    "No finding",
-    "Nodule",
-    "Pneumonia",
-    "Pneumothorax",
+    "Atelectasia",
+    "Derrame pleural",
+    "Enfisema",
+    "Sin hallazgos",
+    "Nódulo",
+    "Neumonía",
+    "Neumotórax",
 ]
 
 const createEmptyRankingDraft = () =>
@@ -28,24 +28,20 @@ const createEmptyRankingDraft = () =>
 
 export default function ResultBox({
     item,
-    openByDefault = false,
     professional = false,
 }) {
     const [isEditing, setIsEditing] = useState(false)
     const [isEditingRanking, setIsEditingRanking] = useState(false)
     const [rankingDraft, setRankingDraft] = useState(createEmptyRankingDraft)
     const [rankingSaving, setRankingSaving] = useState(false)
-    const [rankingNotice, setRankingNotice] = useState("")
     const [rankingOverride, setRankingOverride] = useState(null)
 
     const [observaciones, setObservaciones] = useState("")
     const [validationStatus, setValidationStatus] = useState("NO")
     const [validationSaving, setValidationSaving] = useState(false)
-    const [validationNotice, setValidationNotice] = useState("")
 
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState("")
-    const [previewVisible, setPreviewVisible] = useState(true)
 
     const resultId = item?.result?.id
     const medicalImageId = item?.medicalImage?.id
@@ -54,12 +50,6 @@ export default function ResultBox({
         item?.result?.specialistName ||
         item?.medicalImage?.specialistName ||
         ""
-
-    const previewUrl = medicalImageId
-        ? `${api.defaults.baseURL}/medicalImages/${encodeURIComponent(
-              medicalImageId
-          )}/preview`
-        : ""
 
     const role = useMemo(() => {
         const accessToken = localStorage.getItem("accessToken") || ""
@@ -127,7 +117,6 @@ export default function ResultBox({
         setIsEditing(false)
         setIsEditingRanking(false)
         setRankingDraft(createEmptyRankingDraft())
-        setRankingNotice("")
         setRankingOverride(null)
         setError("")
     }, [resultId, item?.result?.observaciones])
@@ -136,12 +125,7 @@ export default function ResultBox({
         setValidationStatus(
             String(item?.medicalImage?.validado ?? "NO")
         )
-        setValidationNotice("")
     }, [medicalImageId, item?.medicalImage?.validado])
-
-    useEffect(() => {
-        setPreviewVisible(true)
-    }, [medicalImageId])
 
     const saveObservaciones = async () => {
         if (!resultId) return
@@ -228,7 +212,6 @@ export default function ResultBox({
 
         setRankingSaving(true)
         setError("")
-        setRankingNotice("")
 
         try {
             await api.put(
@@ -242,9 +225,6 @@ export default function ResultBox({
             )
 
             setRankingOverride(sortedRows)
-            setRankingNotice(
-                "Ranking de probabilidades actualizado correctamente"
-            )
             setIsEditingRanking(false)
             setRankingDraft(createEmptyRankingDraft())
         } catch (updateError) {
@@ -277,7 +257,6 @@ export default function ResultBox({
 
         setValidationSaving(true)
         setError("")
-        setValidationNotice("")
 
         try {
             const response = await api.put(
@@ -296,9 +275,6 @@ export default function ResultBox({
                 )
             )
 
-            setValidationNotice(
-                "Estado de validacion actualizado correctamente"
-            )
         } catch (updateError) {
             const detail = updateError?.response?.data?.detail
 
@@ -487,7 +463,6 @@ export default function ResultBox({
                                         setRankingDraft(
                                             createEmptyRankingDraft()
                                         )
-                                        setRankingNotice("")
                                         setError("")
                                     }}
                                     className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-900"
@@ -643,7 +618,6 @@ export default function ResultBox({
                                                 setRankingDraft(
                                                     createEmptyRankingDraft()
                                                 )
-                                                setRankingNotice("")
                                                 setError("")
                                             }}
                                             disabled={rankingSaving}

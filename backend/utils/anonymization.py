@@ -61,7 +61,10 @@ TAGS_TO_REMOVE: tuple[Tag, ...] = tuple(
 )
 
 
-def calculate_age_range(birth_date: date) -> Literal["0-18", "18-40", "40-65", "65+"]:
+def calculate_age_range(birth_date: date | None) -> Literal["0-18", "18-40", "40-65", "65+"] | None:
+    if birth_date is None:
+        return None
+
     today = datetime.now().date()
     age = (today - birth_date).days // 365
 

@@ -4,6 +4,7 @@ import { groupImagesByOrthancStudyUid } from "./imageGroupingUtils"
 import { getUserRoleFromToken } from "../security/tokenRole"
 import StudyCard from "./StudyCard"
 import ImageCard from "./ImageCard"
+import SearchEmptyState from "../search/SearchEmptyState"
 
 export default function ImageResult({
   images,
@@ -15,12 +16,15 @@ export default function ImageResult({
   compact = false,
 }) {
   const asArray = Array.isArray(images) ? images : []
-  const grouped = imageViewMode === "estudio" ? groupImagesByOrthancStudyUid(asArray) : []
+  const standaloneImages = asArray.filter((item) => item?.medicalImage?.isStudy === false)
+  const studyImages = asArray.filter((item) => item?.medicalImage?.isStudy !== false)
+  const grouped = imageViewMode === "estudio" ? groupImagesByOrthancStudyUid(studyImages) : []
   const [ungroupedStudyUids, setUngroupedStudyUids] = useState(() => new Set())
   const renderImages = imageViewMode === "estudio"
     ? [
         ...grouped.filter((item) => !ungroupedStudyUids.has(item?._orthancStudyUid)),
-        ...asArray.filter((item) => ungroupedStudyUids.has(item?.medicalImage?.orthancStudyUid)),
+        ...studyImages.filter((item) => ungroupedStudyUids.has(item?.medicalImage?.orthancStudyUid)),
+        ...standaloneImages,
       ]
     : asArray
   const role = getUserRoleFromToken(localStorage.getItem("accessToken") || "")
@@ -30,7 +34,7 @@ export default function ImageResult({
     <div className={`${compact ? "mt-0" : "mt-6"} rounded-lg border border-gray-200 p-4`}>
       {(role === "admin" || role === "especialista") && <ImageBulkDownloadBar images={renderImages} imageViewMode={imageViewMode} />}
 
-      {!loading && renderImages.length === 0 && <p className="text-gray-600">No hay imágenes para mostrar.</p>}
+      {!loading && renderImages.length === 0 && <SearchEmptyState />}
 
       {renderImages.length > 0 && (
         <div className="space-y-3">

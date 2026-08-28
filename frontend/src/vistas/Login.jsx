@@ -1,12 +1,17 @@
-import React, { useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
-import { GoogleLogin } from "@react-oauth/google"
+import React, { useCallback, useEffect, useRef, useState } from "react"
+import { CircleAlert } from "lucide-react"
+import { Link, useLocation, useNavigate } from "react-router-dom"
+import { GoogleLogin, useGoogleLogin } from "@react-oauth/google"
 import api from "../servicio/api"
 import { getUserRoleFromToken } from "../components/security/tokenRole"
+import { useGoogleTerms } from "../useGoogleTerms"
 
 function Login() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState("")
+  const location = useLocation()
+  const preservesGoogleTermsState = useRef(false)
+  const passwordResetRequestRef = useRef(0)
+  const [email, setEmail] = useState(() => location.state?.registeredEmail || "")
   const [password, setPassword] = useState("")
   const [resetEmail, setResetEmail] = useState("")
   const [resetCode, setResetCode] = useState("")
@@ -14,14 +19,51 @@ function Login() {
   const [repeatPassword, setRepeatPassword] = useState("")
   const [resetStep, setResetStep] = useState("login")
   const [error, setError] = useState("")
-  const [info, setInfo] = useState("")
+  const [resetFieldErrors, setResetFieldErrors] = useState({})
+  const [info, setInfo] = useState(() => (
+    location.state?.registrationCompleted
+      ? "Registro completado correctamente. Ya puede iniciar sesión."
+      : ""
+  ))
   const [loading, setLoading] = useState(false)
-  const [acceptedTermsGoogle, setAcceptedTermsGoogle] = useState(false)
-  const [pendingGoogleToken, setPendingGoogleToken] = useState("")
-  const [googleFirstAccess, setGoogleFirstAccess] = useState(false)
+  const {
+    acceptedTermsGoogle,
+    beginGoogleTermsAcceptance,
+    clearGoogleTermsAcceptance,
+    pendingGoogleToken,
+    setAcceptedTermsGoogle,
+  } = useGoogleTerms()
+  const googleFirstAccess = Boolean(pendingGoogleToken)
   const googleEnabled = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID)
 
-  const completeLogin = (accessToken, tokenType) => {
+  const resetInputClassName = (fieldName) => `w-full rounded-lg border px-3 py-1.5 text-slate-900 shadow-sm outline-none transition focus:ring-2 ${
+    resetFieldErrors[fieldName]
+      ? "border-red-500 bg-red-50 focus:border-red-600 focus:ring-red-100"
+      : "border-slate-300 focus:border-emerald-600 focus:ring-emerald-100"
+  }`
+
+  const clearResetFieldError = (fieldName) => {
+    setResetFieldErrors((previous) => {
+      if (!previous[fieldName]) return previous
+      const next = { ...previous }
+      delete next[fieldName]
+      return next
+    })
+  }
+
+  useEffect(() => {
+    return () => {
+      if (!preservesGoogleTermsState.current) {
+        clearGoogleTermsAcceptance()
+      }
+    }
+  }, [])
+
+  const keepGoogleTermsState = () => {
+    preservesGoogleTermsState.current = true
+  }
+
+  const completeLogin = useCallback((accessToken, tokenType) => {
     localStorage.setItem("accessToken", accessToken)
     localStorage.setItem("tokenType", tokenType)
     api.defaults.headers.common.Authorization = `${tokenType} ${accessToken}`
@@ -34,9 +76,9 @@ function Login() {
     } else {
       navigate("/upload")
     }
-  }
+  }, [navigate])
 
-  const completeGoogleLogin = async (idToken, acceptTerms = false) => {
+  const completeGoogleLogin = useCallback(async (idToken, acceptTerms = false, googleAccessToken = "") => {
     if (!idToken) {
       setError("Google no devolvió un token válido")
       return
@@ -45,41 +87,67 @@ function Login() {
     setError("")
     setLoading(true)
     try {
-      const response = await api.post("/auth/google", { idToken, acceptTerms })
+      const response = await api.post("/auth/google", {
+        idToken,
+        acceptTerms,
+        ...(googleAccessToken ? { googleAccessToken } : {}),
+      })
       const { access_token: accessToken, token_type: tokenType } = response.data
+      clearGoogleTermsAcceptance()
       completeLogin(accessToken, tokenType)
     } catch (err) {
       if (err.response?.status === 428) {
-        setPendingGoogleToken(idToken)
-        setAcceptedTermsGoogle(false)
+        beginGoogleTermsAcceptance(idToken)
         setError("")
-        setInfo("Para completar tu primer acceso con Google, revisa y acepta los términos y condiciones.")
+        setInfo(err.response?.data?.detail || "Complete los datos solicitados para acceder con Google.")
         return
       }
       setError(err.response?.data?.detail || "No se pudo iniciar sesión con Google")
     } finally {
       setLoading(false)
     }
-  }
+  }, [beginGoogleTermsAcceptance, clearGoogleTermsAcceptance, completeLogin])
 
-  const handleGoogleSuccess = (credentialResponse) => {
-    setGoogleFirstAccess(true)
+  const requestGoogleBirthDatePermission = useGoogleLogin({
+    scope: "openid email https://www.googleapis.com/auth/user.birthday.read",
+    onSuccess: (tokenResponse) => {
+      completeGoogleLogin(pendingGoogleToken, true, tokenResponse.access_token)
+    },
+    onError: () => {
+      completeGoogleLogin(pendingGoogleToken, true)
+    },
+    onNonOAuthError: () => {
+      completeGoogleLogin(pendingGoogleToken, true)
+    },
+  })
+
+  const handleGoogleSuccess = useCallback((credentialResponse) => {
     completeGoogleLogin(credentialResponse?.credential)
-  }
+  }, [completeGoogleLogin])
 
-  const handleGoogleError = () => {
-    setGoogleFirstAccess(false)
+  const handleGoogleError = useCallback(() => {
     setError("No se pudo completar la autenticación de Google")
-  }
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError("")
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError("Escriba un correo electrónico válido con @ y dominio, por ejemplo nombre@dominio.com.")
+      return
+    }
+    if (!password) {
+      setError("Escriba la contraseña asociada a este correo para poder iniciar sesión.")
+      return
+    }
+
     setLoading(true)
 
     try {
       const formData = new URLSearchParams()
-      formData.append("username", email)
+      formData.append("username", normalizedEmail)
       formData.append("password", password)
 
       const response = await api.post("/auth/token", formData, {
@@ -101,18 +169,32 @@ function Login() {
     e.preventDefault()
     setError("")
     setInfo("")
+    const normalizedEmail = resetEmail.trim().toLowerCase()
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setResetFieldErrors({ email: true })
+      setError("Escriba un correo válido con @ y dominio, por ejemplo nombre@dominio.com.")
+      return
+    }
+
+    setResetFieldErrors({})
     setLoading(true)
+    const requestId = ++passwordResetRequestRef.current
 
     try {
       const response = await api.post("/auth/password-reset/request", {
-        email: resetEmail,
+        email: normalizedEmail,
       })
+      if (requestId !== passwordResetRequestRef.current) return
+      setResetEmail(normalizedEmail)
       setInfo(response.data?.message || "Se ha enviado un codigo de recuperacion")
       setResetStep("confirm")
     } catch (err) {
+      if (requestId !== passwordResetRequestRef.current) return
+      setResetFieldErrors({ email: true })
       setError(err.response?.data?.detail || "No se pudo iniciar la recuperacion de contraseña")
     } finally {
-      setLoading(false)
+      if (requestId === passwordResetRequestRef.current) setLoading(false)
     }
   }
 
@@ -121,8 +203,23 @@ function Login() {
     setError("")
     setInfo("")
 
+    const validationErrors = {}
+    if (!/^\d{6}$/.test(resetCode)) validationErrors.code = true
+    if (newPassword.length < 8 || newPassword.length > 32) validationErrors.newPassword = true
+
+    if (Object.keys(validationErrors).length > 0) {
+      setResetFieldErrors(validationErrors)
+      setError(
+        validationErrors.code
+          ? "El código debe contener exactamente 6 números. Revise el correo recibido e inténtelo de nuevo."
+          : "La nueva contraseña debe tener entre 8 y 32 caracteres."
+      )
+      return
+    }
+
     if (newPassword !== repeatPassword) {
-      setError("Las contraseñas no coinciden")
+      setResetFieldErrors({ repeatPassword: true })
+      setError("Las contraseñas no coinciden. Repita exactamente la misma contraseña en ambos campos.")
       return
     }
 
@@ -141,30 +238,47 @@ function Login() {
       setResetCode("")
       setEmail(resetEmail)
     } catch (err) {
+      setResetFieldErrors({ code: true })
       setError(err.response?.data?.detail || "No se pudo actualizar la contraseña")
     } finally {
       setLoading(false)
     }
   }
 
-  const backToLogin = () => {
+  const backToLogin = (event) => {
+    event?.preventDefault()
+    event?.stopPropagation()
+    passwordResetRequestRef.current += 1
     setError("")
     setInfo("")
+    setLoading(false)
     setResetStep("login")
+    setResetCode("")
+    setResetEmail("")
+    setNewPassword("")
+    setRepeatPassword("")
+    setResetFieldErrors({})
+  }
+
+  const openPasswordReset = () => {
+    passwordResetRequestRef.current += 1
+    setResetEmail(email.trim().toLowerCase())
+    setResetStep("request")
+    setError("")
+    setInfo("")
+    setLoading(false)
+    setResetFieldErrors({})
     setResetCode("")
     setNewPassword("")
     setRepeatPassword("")
   }
 
   const messageBox = error || info
-  const messageClass = error
-    ? "bg-red-100 border-red-400 text-red-700"
-    : "bg-green-100 border-green-400 text-green-700"
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="bg-white min-h-96 py-16 px-12 rounded-lg shadow-md w-full max-w-lg">
-        <h2 className="text-3xl font-bold mb-6 text-center">
+    <div className="flex min-h-[100dvh] items-center justify-center bg-slate-100 p-3 sm:p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white px-6 py-5 shadow-lg sm:px-8 sm:py-6">
+        <h2 className="mb-1 text-center text-2xl font-bold text-slate-900 sm:text-3xl">
           {resetStep === "login"
             ? "Iniciar sesión"
             : resetStep === "request"
@@ -174,13 +288,14 @@ function Login() {
 
         {messageBox && (
           <div
-            className={`mb-6 flex items-start gap-3 rounded-lg border p-4 shadow-sm ${
+            className={`flex items-start gap-3 shadow-sm ${
               error
-                ? "border-red-300 bg-red-50 text-red-800"
-                : "border-green-300 bg-green-50 text-green-800"
+                ? "mb-3 rounded-xl border border-red-300 bg-red-50 p-3 text-red-800"
+                : "mb-3 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-emerald-800"
             }`}
           >
 
+            {error && <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />}
             <div>
               <p className="font-semibold">
                 {error ? "Ha ocurrido un error" : "Operación realizada correctamente"}
@@ -191,35 +306,35 @@ function Login() {
         )}
 
         {resetStep === "login" ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="space-y-3">
             <div>
-              <label className="block text-md font-medium">Email</label>
+              <label className="block text-sm font-medium text-slate-700">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={googleFirstAccess}
-                className="w-full border rounded p-2 mt-1 disabled:bg-gray-100 disabled:text-gray-400"
+                className="mt-0.5 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-slate-900 shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
               />
             </div>
 
             <div>
-              <label className="block text-md font-medium">Contraseña</label>
+              <label className="block text-sm font-medium text-slate-700">Contraseña</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={googleFirstAccess}
-                className="w-full border rounded p-2 mt-1 disabled:bg-gray-100 disabled:text-gray-400"
+                className="mt-0.5 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-slate-900 shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading || googleFirstAccess}
-              className="w-full text-lg bg-green-700 text-white py-2 rounded hover:bg-green-500 disabled:bg-gray-400"
+              className="w-full rounded-lg bg-emerald-700 py-2 font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               {loading ? "Iniciando sesion..." : "Iniciar sesión"}
             </button>
@@ -227,13 +342,8 @@ function Login() {
             <button
               type="button"
               disabled={googleFirstAccess}
-              onClick={() => {
-                setResetEmail(email)
-                setResetStep("request")
-                setError("")
-                setInfo("")
-              }}
-              className="w-full text-sm font-medium text-blue-600 hover:underline disabled:text-gray-400 disabled:no-underline"
+              onClick={openPasswordReset}
+              className="w-full text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline"
             >
               ¿Olvidaste tu contraseña?
             </button>
@@ -261,7 +371,12 @@ function Login() {
                       />
                       <span>
                         He leído y acepto los{" "}
-                        <Link to="/términos-y-condiciones" target="_blank" rel="noreferrer" className="font-semibold text-blue-600 hover:text-blue-700 hover:underline">
+                        <Link
+                          to="/terminos-y-condiciones"
+                          state={{ origin: "google" }}
+                          onClick={keepGoogleTermsState}
+                          className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                        >
                           términos y condiciones de uso
                         </Link>.
                       </span>
@@ -269,10 +384,10 @@ function Login() {
                     <button
                       type="button"
                       disabled={!acceptedTermsGoogle || loading}
-                      onClick={() => completeGoogleLogin(pendingGoogleToken, true)}
-                      className="w-full rounded bg-green-700 py-2 font-medium text-white hover:bg-green-600 disabled:bg-gray-400"
+                      onClick={() => requestGoogleBirthDatePermission()}
+                      className="w-full rounded-lg bg-emerald-700 py-2 font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                     >
-                      Aceptar y continuar
+                      Aceptar, autorizar Google y continuar
                     </button>
                   </div>
                 )}
@@ -281,28 +396,32 @@ function Login() {
 
             <p className="text-center text-sm mt-4">
               ¿No tienes cuenta?{" "}
-              <Link to="/register" className="text-blue-600 hover:underline">
+              <Link to="/register" className="font-medium text-blue-600 hover:underline">
                 Regístrate
               </Link>
             </p>
           </form>
         ) : resetStep === "request" ? (
-          <form onSubmit={startPasswordReset} className="space-y-4">
+          <form onSubmit={startPasswordReset} noValidate className="space-y-4">
             <div>
-              <label className="block text-md font-medium">Correo electrónico</label>
+              <label className="block text-sm font-medium text-slate-700">Correo electrónico</label>
               <input
                 type="email"
                 value={resetEmail}
-                onChange={(e) => setResetEmail(e.target.value)}
+                onChange={(e) => {
+                  setResetEmail(e.target.value)
+                  clearResetFieldError("email")
+                }}
                 required
-                className="w-full border rounded p-2 mt-1"
+                aria-invalid={Boolean(resetFieldErrors.email)}
+                className={`mt-1 ${resetInputClassName("email")}`}
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full text-lg bg-green-700 text-white py-2 rounded hover:bg-green-500 disabled:bg-gray-400"
+              className="w-full rounded-lg bg-emerald-700 py-2 font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               {loading ? "Enviando codigo..." : "Enviar código"}
             </button>
@@ -316,7 +435,7 @@ function Login() {
             </button>
           </form>
         ) : (
-          <form onSubmit={confirmPasswordReset} className="space-y-4">
+          <form onSubmit={confirmPasswordReset} noValidate className="space-y-4">
             <div>
               <p className="text-sm text-gray-600 text-center">
                 Introduzca el código de verificación que hemos enviado a <strong>{resetEmail}</strong>.
@@ -324,47 +443,59 @@ function Login() {
             </div>
 
             <div>
-              <label className="block text-md font-medium">Código de verificación</label>
+              <label className="block text-sm font-medium text-slate-700">Código de verificación</label>
               <input
                 type="text"
                 value={resetCode}
-                onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onChange={(e) => {
+                  setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  clearResetFieldError("code")
+                }}
                 required
                 minLength="6"
                 maxLength="6"
                 pattern="[0-9]{6}"
-                className="w-full border rounded p-2 mt-1 tracking-[0.35em] text-center"
+                aria-invalid={Boolean(resetFieldErrors.code)}
+                className={`mt-1 tracking-[0.35em] text-center ${resetInputClassName("code")}`}
                 inputMode="numeric"
                 autoComplete="one-time-code"
               />
             </div>
 
             <div>
-              <label className="block text-md font-medium">Nueva contraseña</label>
+              <label className="block text-sm font-medium text-slate-700">Nueva contraseña</label>
               <input
                 type="password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={(e) => {
+                  setNewPassword(e.target.value)
+                  clearResetFieldError("newPassword")
+                }}
                 required
-                className="w-full border rounded p-2 mt-1"
+                aria-invalid={Boolean(resetFieldErrors.newPassword)}
+                className={`mt-1 ${resetInputClassName("newPassword")}`}
               />
             </div>
 
             <div>
-              <label className="block text-md font-medium">Repita la contraseña</label>
+              <label className="block text-sm font-medium text-slate-700">Repita la contraseña</label>
               <input
                 type="password"
                 value={repeatPassword}
-                onChange={(e) => setRepeatPassword(e.target.value)}
+                onChange={(e) => {
+                  setRepeatPassword(e.target.value)
+                  clearResetFieldError("repeatPassword")
+                }}
                 required
-                className="w-full border rounded p-2 mt-1"
+                aria-invalid={Boolean(resetFieldErrors.repeatPassword)}
+                className={`mt-1 ${resetInputClassName("repeatPassword")}`}
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full text-lg bg-green-700 text-white py-2 rounded hover:bg-green-500 disabled:bg-gray-400"
+              className="w-full rounded-lg bg-emerald-700 py-2 font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               {loading ? "Actualizando..." : "Cambiar contraseña"}
             </button>

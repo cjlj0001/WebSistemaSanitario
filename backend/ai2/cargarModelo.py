@@ -157,6 +157,13 @@ def _predictPilLocal(image: Image.Image, output_path: str = None) -> dict:
     }
 
 
+def prepareAiModel() -> None:
+    """Load the local checkpoints before this model is made active."""
+    ai_dir = Path(__file__).parent
+    for model_path in MODEL_PATHS:
+        load_model(str(ai_dir / model_path), ARCHITECTURE)
+
+
 def predictPil(image: Image.Image, output_path: str = None, model_key: str | None = None) -> dict:
     selected_model_key = (model_key or getActiveAiModelKey()).strip()
 

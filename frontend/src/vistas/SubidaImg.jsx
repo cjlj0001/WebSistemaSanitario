@@ -148,7 +148,7 @@ function Upload() {
                   closeModal()
                   navigate("/upload", { replace: true })
                 }}
-                className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                className="shrink-0 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
               >
                 Cerrar
               </button>

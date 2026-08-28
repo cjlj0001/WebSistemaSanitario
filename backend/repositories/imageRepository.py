@@ -453,6 +453,7 @@ def createMedicalImageManualResult(
         existing_manual.modalidad = sourceMedicalImage.modalidad
         existing_manual.rangoEdad = calculate_age_range(user.fechaNacimiento)
         existing_manual.specialistName = specialistName
+        existing_manual.isStudy = sourceMedicalImage.isStudy
         existing_manual.fechaSubida = datetime.now(timezone.utc)
 
         db.commit()
@@ -479,6 +480,7 @@ def createMedicalImageManualResult(
             orthancPatientId=sourceMedicalImage.orthancPatientId,
             modalidad=sourceMedicalImage.modalidad,
             specialistName=specialistName,
+            isStudy=sourceMedicalImage.isStudy,
         )
 
         db.add(medical_image)
@@ -515,59 +517,34 @@ def updateMedicalImageValidation(
     return medical_image
 
 
-def _delete_orthanc_instance(instance_id: str) -> None:
-    """Elimina una instancia remota o informa del fallo antes de tocar la BD.
-
-    Un 404 significa que Orthanc ya no contiene el fichero: se puede limpiar
-    con seguridad su referencia local. Cualquier otro error conserva la fila
-    local para evitar perder el rastro de una imagen que no se pudo borrar.
-    """
-    try:
-        response = requests.delete(
-            f"{orthancUrl}/instances/{instance_id}",
-            auth=orthancAuth,
-            timeout=15,
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError("No se pudo contactar con Orthanc para borrar la imagen") from exc
-
-    if response.status_code not in (200, 204, 404):
-        raise RuntimeError(f"Orthanc no pudo borrar la imagen (HTTP {response.status_code})")
-
-
-def deleteMedicalImage(db: Session, medicalImageId: int) -> bool:
+def deleteMedicalImage(db: Session, medicalImageId: int) -> dict | None:
+    """Delete only the local record, never the corresponding Orthanc instance."""
     medical_image = getMedicalImageById(db, medicalImageId)
     if not medical_image:
-        return False
+        return None
 
-    _delete_orthanc_instance(medical_image.orthancInstanceId)
+    study_dissolved = medical_image.tipo in {"Limpia", "Resultado IA"}
     try:
+        if study_dissolved:
+            # Original or AI removal dissolves the local study. The remaining
+            # rows stay available as standalone images, with their Orthanc UID
+            # and instance untouched.
+            db.query(models.MedicalImage).filter(
+                models.MedicalImage.orthancStudyUid == medical_image.orthancStudyUid,
+                models.MedicalImage.id != medical_image.id,
+            ).update({"isStudy": False}, synchronize_session=False)
         db.delete(medical_image)
         db.commit()
     except Exception:
         db.rollback()
         raise
-    return True
+    return {"studyDissolved": study_dissolved}
 
 
 def deleteUnavailableMedicalImage(db: Session, medicalImageId: int) -> bool:
-    """Borra solo una referencia local cuya instancia ya no existe en Orthanc."""
+    """Remove a stale local reference without querying or changing Orthanc."""
     medical_image = getMedicalImageById(db, medicalImageId)
     if not medical_image:
-        return False
-
-    try:
-        response = requests.get(
-            f"{orthancUrl}/instances/{medical_image.orthancInstanceId}",
-            auth=orthancAuth,
-            timeout=15,
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError("No se pudo comprobar la imagen en Orthanc") from exc
-
-    if response.status_code != 404:
-        if response.status_code >= 400:
-            raise RuntimeError(f"Orthanc no pudo comprobar la imagen (HTTP {response.status_code})")
         return False
 
     try:
@@ -580,15 +557,18 @@ def deleteUnavailableMedicalImage(db: Session, medicalImageId: int) -> bool:
 
 
 def deleteMedicalImagesByUserId(db: Session, user_id: int) -> int:
-    """Elimina todas las imágenes de un usuario"""
-    images = getMedicalImagesByUserId(db, user_id)
-    deleted_count = 0
-    
-    for image in images:
-        if deleteMedicalImage(db, image.id):
-            deleted_count += 1
-    
-    return deleted_count
+    """Delete all local image rows for a user without contacting Orthanc."""
+    try:
+        deleted_count = (
+            db.query(models.MedicalImage)
+            .filter(models.MedicalImage.idUsuario == user_id)
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        return deleted_count
+    except Exception:
+        db.rollback()
+        raise
 
 
 def deleteMedicalImagesByUserDni(db: Session, user_dni: str) -> int:
@@ -602,11 +582,6 @@ def deleteMedicalImagesByOrthancStudyUid(db: Session, orthanc_study_uid: str) ->
     images = getMedicalImagesByOrthancStudyUid(db=db, orthanc_study_uid=orthanc_study_uid)
     if not images:
         return 0
-
-    # Primero se confirma la eliminación de todas las instancias remotas. Si
-    # una falla, no se borra ningún registro local del estudio.
-    for image in images:
-        _delete_orthanc_instance(image.orthancInstanceId)
 
     try:
         for image in images:

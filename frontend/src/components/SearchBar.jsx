@@ -9,6 +9,65 @@ import {
     filterImagesBySearchValue
 } from "./search/searchPresets"
 
+function normalizeSearchText(value) {
+    return String(value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim()
+}
+
+function matchesUserSearch(user, query, exact = false) {
+    const normalizedQuery = normalizeSearchText(query)
+    return [user?.name, user?.email, user?.dni, user?.id]
+        .some((field) => {
+            const normalizedField = normalizeSearchText(field)
+            return exact
+                ? normalizedField === normalizedQuery
+                : normalizedField.includes(normalizedQuery)
+        })
+}
+
+function getImageSuggestionTitle(item, searchMode) {
+    if (searchMode === "estudio") {
+        return item?.medicalImage?.orthancStudyUid || "Estudio sin UID"
+    }
+    return `Imagen #${item?.medicalImage?.id ?? "-"}`
+}
+
+function getSuggestionSearchValue(item, searchMode) {
+    if (searchMode === "usuario") {
+        return item?.id ?? item?.dni ?? item?.email ?? item?.name ?? ""
+    }
+
+    if (searchMode === "estudio") {
+        return item?.medicalImage?.orthancStudyUid ?? item?.medicalImage?.id ?? ""
+    }
+
+    return item?.medicalImage?.id ?? item?.medicalImage?.dniUsuario ?? item?.medicalImage?.nombreUsuario ?? ""
+}
+
+function getSuggestionDetails(item, searchMode) {
+    if (searchMode === "usuario") {
+        return item?.dni || item?.email || "Sin identificador"
+    }
+
+    const userName = item?.medicalImage?.nombreUsuario || "Usuario sin asignar"
+    const userDni = item?.medicalImage?.dniUsuario
+    return userDni ? `${userName} · ${userDni}` : userName
+}
+
+function getStudySuggestions(items) {
+    const seenStudyUids = new Set()
+
+    return items.filter((item) => {
+        const studyUid = item?.medicalImage?.orthancStudyUid || item?.medicalImage?.id
+        if (!studyUid || seenStudyUids.has(studyUid)) return false
+        seenStudyUids.add(studyUid)
+        return true
+    })
+}
+
 export default function UnifiedSearchBar({
     
     onUsersListed, 
@@ -40,13 +99,14 @@ export default function UnifiedSearchBar({
     const primaryCloseTimerRef = useRef(null)
     const secondaryCloseTimerRef = useRef(null)
     const tertiaryCloseTimerRef = useRef(null)
-    const userSearchTimeoutRef = useRef(null)
+    const suggestionTimeoutRef = useRef(null)
     const userSearchRequestRef = useRef(0)
     const imageSearchRequestRef = useRef(0)
     const [selectedTertiary, setSelectedTertiary] = useState({})
 
 
     const [internalUserSuggestions, setInternalUserSuggestions] = useState([])
+    const [internalImageSuggestions, setInternalImageSuggestions] = useState([])
     const [internalUserSearching, setInternalUserSearching] = useState(false)
     const [internalImageSearching, setInternalImageSearching] = useState(false)
     const [internalImageSearchBy, setInternalImageSearchBy] = useState(imageFilters?.[0]?.value || "")
@@ -67,7 +127,9 @@ export default function UnifiedSearchBar({
             ? imageFilters.filter((filter) => filter.value !== "tipo")
             : imageFilters
     const currentSearchBy = searchMode === "usuario" ? null : internalImageSearchBy
-    const currentSuggestions = searchMode === "usuario" ? (userSuggestions.length ? userSuggestions : internalUserSuggestions) : []
+    const currentSuggestions = searchMode === "usuario"
+        ? (userSuggestions.length ? userSuggestions : internalUserSuggestions)
+        : internalImageSuggestions
     const isSearching = searchMode === "usuario" ? (userSearching || internalUserSearching) : (imageSearching || internalImageSearching)
     const inputValue = inputText
 
@@ -98,8 +160,8 @@ export default function UnifiedSearchBar({
             if (tertiaryCloseTimerRef.current) {
                 clearTimeout(tertiaryCloseTimerRef.current)
             }
-            if (userSearchTimeoutRef.current) {
-                clearTimeout(userSearchTimeoutRef.current)
+            if (suggestionTimeoutRef.current) {
+                clearTimeout(suggestionTimeoutRef.current)
             }
         }
     }, [])
@@ -113,8 +175,8 @@ export default function UnifiedSearchBar({
     }
 
     const handlePrimarySelect = (mode) => {
-        if (userSearchTimeoutRef.current) {
-            clearTimeout(userSearchTimeoutRef.current)
+        if (suggestionTimeoutRef.current) {
+            clearTimeout(suggestionTimeoutRef.current)
         }
         userSearchRequestRef.current += 1
         imageSearchRequestRef.current += 1
@@ -123,6 +185,8 @@ export default function UnifiedSearchBar({
         setSelectedTertiary({})
         setInternalImageSearchBy(imageFilters?.[0]?.value || "")
         setInputText("")
+        setInternalUserSuggestions([])
+        setInternalImageSuggestions([])
 
         if (typeof onSearchModeChange === "function") {
             onSearchModeChange(mode)
@@ -175,6 +239,7 @@ export default function UnifiedSearchBar({
         safeSetError("")
         safeSetLoading(true)
         setInternalImageSearching(true)
+        setInternalImageSuggestions([])
         try {
             const response = await api.get("/medicalImages")
             const safeImgs = Array.isArray(response.data) ? response.data : []
@@ -202,35 +267,53 @@ export default function UnifiedSearchBar({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    async function searchUser(value) {
+    async function loadUserSuggestions(value) {
         const v = String(value || "").trim()
         const requestId = ++userSearchRequestRef.current
+        setInternalUserSuggestions([])
+        if (!v) {
+            return
+        }
+        try {
+            const response = await api.get("/api/users")
+            const matchingUsers = (Array.isArray(response.data) ? response.data : []).filter((user) =>
+                matchesUserSearch(user, v)
+            )
+            if (requestId !== userSearchRequestRef.current) return
+            setInternalUserSuggestions(matchingUsers)
+        } catch (err) {
+            if (requestId !== userSearchRequestRef.current) return
+            const detail = err?.response?.data?.detail
+            safeSetError(detail || "No se pudo realizar la búsqueda de usuarios")
+            setInternalUserSuggestions([])
+        }
+    }
+
+    async function searchUsersExactly(value) {
+        const v = String(value || "").trim()
+        const requestId = ++userSearchRequestRef.current
+        setInternalUserSuggestions([])
+
         if (!v) {
             await fetchUsers(requestId)
             return
         }
+
         safeSetError("")
+        safeSetNotice("")
         safeSetLoading(true)
         setInternalUserSearching(true)
         try {
-            let detectiveSearchBy = "name"
-            if (v.includes("@")) detectiveSearchBy = "email"
-            else if (/^\d+$/.test(v)) detectiveSearchBy = "id"
-            else if (/^\d{6,9}[A-Z]?$/i.test(v)) detectiveSearchBy = "dni"
-
-            const encoded = encodeURIComponent(v)
-            const path = detectiveSearchBy === "id" ? `/api/users/${encoded}` : `/api/users/${detectiveSearchBy}/${encoded}`
-            const response = await api.get(path)
-            const single = response.data
+            const response = await api.get("/api/users")
+            const matchingUsers = (Array.isArray(response.data) ? response.data : []).filter((user) =>
+                matchesUserSearch(user, v, true)
+            )
             if (requestId !== userSearchRequestRef.current) return
-            setInternalUserSuggestions([single])
-            if (typeof onUsersListed === "function") onUsersListed([single])
-            safeSetNotice(`Usuario encontrado (búsqueda por ${detectiveSearchBy})`)
+            if (typeof onUsersListed === "function") onUsersListed(matchingUsers)
         } catch (err) {
             if (requestId !== userSearchRequestRef.current) return
             const detail = err?.response?.data?.detail
-            safeSetError(detail || "No se encontró el usuario")
-            setInternalUserSuggestions([])
+            safeSetError(detail || "No se pudo realizar la búsqueda de usuarios")
             if (typeof onUsersListed === "function") onUsersListed([])
         } finally {
             if (requestId === userSearchRequestRef.current) {
@@ -240,12 +323,47 @@ export default function UnifiedSearchBar({
         }
     }
 
-    async function fetchImagesByImageIdOrUserDni(value, scope = searchMode === "estudio" ? "estudio" : "imagen") {
+    async function loadImageSuggestions(value, scope = searchMode === "estudio" ? "estudio" : "imagen") {
+        const searchText = String(value || "").trim()
+        const requestId = ++imageSearchRequestRef.current
+        setInternalImageSuggestions([])
+
+        if (!searchText) return
+
+        try {
+            const response = await api.get("/medicalImages")
+            const allImagesData = Array.isArray(response.data) ? response.data : []
+            const effectiveScope = scope === "estudio" ? "estudio" : "imagen"
+            const matchingImages = filterImagesBySearchValue(
+                allImagesData,
+                buildImageSearchValue(searchText),
+                effectiveScope
+            )
+
+            if (requestId !== imageSearchRequestRef.current) return
+            setInternalImageSuggestions(
+                effectiveScope === "estudio"
+                    ? getStudySuggestions(matchingImages)
+                    : matchingImages
+            )
+        } catch (err) {
+            if (requestId !== imageSearchRequestRef.current) return
+            const detail = err?.response?.data?.detail
+            safeSetError(detail || "No se pudo obtener las sugerencias de imágenes")
+        }
+    }
+
+    async function fetchImagesByImageIdOrUserDni(
+        value,
+        scope = searchMode === "estudio" ? "estudio" : "imagen",
+        exactText = true
+    ) {
         const requestId = ++imageSearchRequestRef.current
         const v = String(value || "").trim()
         safeSetError("")
         safeSetLoading(true)
         setInternalImageSearching(true)
+        setInternalImageSuggestions([])
         try {
 
             const response = await api.get("/medicalImages")
@@ -261,7 +379,7 @@ export default function UnifiedSearchBar({
             }
 
             const effectiveScope = scope === "estudio" ? "estudio" : "imagen"
-            const filteredImages = filterImagesBySearchValue(allImagesData, v, effectiveScope)
+            const filteredImages = filterImagesBySearchValue(allImagesData, v, effectiveScope, exactText)
             const visibleImages = filteredImages
             if (requestId !== imageSearchRequestRef.current) return
             if (typeof onImagesListed === "function") onImagesListed(visibleImages)
@@ -279,56 +397,92 @@ export default function UnifiedSearchBar({
         }
     }
 
-    const handleSearchValueChange = (value) => {
-        setInputText(value)
-        if (searchMode === "usuario") {
-            if (userSearchTimeoutRef.current) {
-                clearTimeout(userSearchTimeoutRef.current)
-            }
-            userSearchTimeoutRef.current = setTimeout(() => {
-                searchUser(value)
-            }, 180)
+    const clearSuggestionTimer = () => {
+        if (suggestionTimeoutRef.current) {
+            clearTimeout(suggestionTimeoutRef.current)
+            suggestionTimeoutRef.current = null
         }
     }
 
+    const handleSearchValueChange = (value) => {
+        setInputText(value)
+        clearSuggestionTimer()
+
+        const mode = searchMode
+        if (mode === "usuario") {
+            userSearchRequestRef.current += 1
+            setInternalUserSuggestions([])
+            setInternalUserSearching(false)
+        } else {
+            imageSearchRequestRef.current += 1
+            setInternalImageSuggestions([])
+            setInternalImageSearching(false)
+        }
+        safeSetLoading(false)
+
+        if (!String(value || "").trim()) return
+
+        suggestionTimeoutRef.current = setTimeout(() => {
+            if (mode === "usuario") {
+                loadUserSuggestions(value)
+            } else {
+                loadImageSuggestions(value, mode)
+            }
+        }, 180)
+    }
+
     const handleFilterSelect = (filterValue) => {
+        imageSearchRequestRef.current += 1
+        setInternalImageSuggestions([])
+        setInternalImageSearching(false)
+        safeSetLoading(false)
         setInternalImageSearchBy(filterValue)
         setSecondaryOpen(false)
     }
 
     const handleSearch = () => {
+        clearSuggestionTimer()
         const val = inputText
         if (searchMode === "usuario") {
-            if (userSearchTimeoutRef.current) {
-                clearTimeout(userSearchTimeoutRef.current)
-            }
-            searchUser(val)
+            searchUsersExactly(val)
             return
         }
-        fetchImagesByImageIdOrUserDni(buildImageSearchValue(val))
+        fetchImagesByImageIdOrUserDni(buildImageSearchValue(val), searchMode, true)
     }
 
     const handleClearSearch = () => {
+        clearSuggestionTimer()
         setInputText("")
+        setInternalUserSuggestions([])
+        setInternalImageSuggestions([])
         if (searchMode === "usuario") {
-            if (userSearchTimeoutRef.current) {
-                clearTimeout(userSearchTimeoutRef.current)
-            }
             fetchUsers()
             return
         }
-        fetchImagesByImageIdOrUserDni(buildImageSearchValue(""))
+        fetchImagesByImageIdOrUserDni(buildImageSearchValue(""), searchMode, true)
     }
 
     const handleSuggestionClick = (item) => {
+        const suggestionValue = String(getSuggestionSearchValue(item, searchMode) || "").trim()
+        if (!suggestionValue) return
+
+        clearSuggestionTimer()
+        setInputText(suggestionValue)
+        setInternalUserSuggestions([])
+        setInternalImageSuggestions([])
+
         if (searchMode === "usuario") {
             if (typeof onUserSuggestionClick === "function") onUserSuggestionClick(item)
-            setInternalUserSuggestions([item])
-            if (typeof onUsersListed === "function") onUsersListed([item])
-        } else {
-            if (typeof onImageSuggestionClick === "function") onImageSuggestionClick(item)
-            if (typeof onImagesListed === "function") onImagesListed([item])
+            searchUsersExactly(suggestionValue)
+            return
         }
+
+        if (typeof onImageSuggestionClick === "function") onImageSuggestionClick(item)
+        fetchImagesByImageIdOrUserDni(
+            buildImageSearchValue(suggestionValue),
+            searchMode,
+            true
+        )
     }
 
     return (
@@ -538,23 +692,26 @@ export default function UnifiedSearchBar({
                 <div className="relative min-w-0 flex-1">
                 <input
                     type="text"
-                    aria-label={searchMode === "usuario" ? "Buscar usuario" : searchMode === "estudio" ? "Buscar por orthancStudyUid" : "Buscar por imagen"}
-                    placeholder={searchMode === "usuario" ? "Busca por nombre, email, DNI o ID..." : searchMode === "estudio" ? "Busca por orthancStudyUid (y/o usa filtros)..." : "Busca por ID imagen o DNI usuario (y/o usa filtros)..."}
+                    aria-label={searchMode === "usuario" ? "Buscar usuario" : searchMode === "estudio" ? "Buscar estudio" : "Buscar imagen"}
+                    placeholder={searchMode === "usuario" ? "Busca por nombre, correo, DNI o ID..." : searchMode === "estudio" ? "Busca por nombre, DNI o ID de Google, o UID del estudio..." : "Busca por usuario, ID de imagen o DNI..."}
                     value={inputValue}
                     onChange={(e) => {
                         const val = e.target.value
                         handleSearchValueChange(val)
                     }}
                     onKeyDown={(e) => {
-                        if (e.key === "Enter") handleSearch()
+                        if (e.key === "Enter") {
+                            e.preventDefault()
+                            handleSearch()
+                        }
                     }}
-                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 pr-20 text-sm text-slate-900 placeholder-slate-500 transition-colors hover:border-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 pr-12 text-sm text-slate-900 placeholder-slate-500 transition-colors hover:border-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 />
                 {inputValue && (
                     <button
                         type="button"
                         onClick={handleClearSearch}
-                        className="absolute right-12 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                        className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
                         aria-label="Limpiar búsqueda"
                     >
                         <X className="h-4 w-4" aria-hidden="true" />
@@ -579,20 +736,31 @@ export default function UnifiedSearchBar({
                 </button>
             </div>
 
-            {/* Las sugerencias son exclusivas de la búsqueda de usuarios. */}
-            {searchMode === "usuario" && currentSuggestions.length > 0 && (
+            {/* Las sugerencias se muestran mientras se escribe en cualquier modo. */}
+            {inputValue.trim() && currentSuggestions.length > 0 && (
                 <div className="relative z-40 mt-3 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-lg shadow-slate-900/10">
-                    {currentSuggestions.map((item, index) => (
-                        <button
-                            type="button"
-                            key={index}
-                            onClick={() => handleSuggestionClick(item)}
-                            className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-sm text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-                        >
-                            <span className="font-semibold">{item?.name || item?.id}</span>
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{item?.dni || "Sin DNI"}</span>
-                        </button>
-                    ))}
+                    {currentSuggestions.map((item, index) => {
+                        const suggestionValue = getSuggestionSearchValue(item, searchMode)
+                        const suggestionTitle = searchMode === "usuario"
+                            ? (item?.name || item?.email || `Usuario #${item?.id ?? "-"}`)
+                            : getImageSuggestionTitle(item, searchMode)
+
+                        return (
+                            <button
+                                type="button"
+                                key={suggestionValue || index}
+                                onClick={() => handleSuggestionClick(item)}
+                                className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-sm text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                            >
+                                <span className="min-w-0 flex-1 truncate font-semibold" title={suggestionTitle}>
+                                    {suggestionTitle}
+                                </span>
+                                <span className="ml-3 max-w-[45%] truncate rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600" title={getSuggestionDetails(item, searchMode)}>
+                                    {getSuggestionDetails(item, searchMode)}
+                                </span>
+                            </button>
+                        )
+                    })}
                 </div>
             )}
             </div>

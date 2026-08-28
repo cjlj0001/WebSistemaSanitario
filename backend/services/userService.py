@@ -58,11 +58,19 @@ def getUserByEmail(db: Session, email: str):
 
 def createUser(db: Session, user: schemas.UserCreate):
     existingUserByDni = userRepository.getUserByDni(db, dni=user.dni)
-    if existingUserByDni:
+    existingUserByEmail = userRepository.getUserByEmail(db, email=user.email)
+
+    if existingUserByDni and (
+        existingUserByEmail is None or existingUserByDni.id != existingUserByEmail.id
+    ):
         raise DniAlreadyRegisteredError()
 
-    existingUserByEmail = userRepository.getUserByEmail(db, email=user.email)
     if existingUserByEmail:
+        if userRepository.isGoogleProvisionedUser(existingUserByEmail):
+            validatePasswordLimits(user.password)
+            return userRepository.completeGoogleUserRegistration(
+                db=db, user=existingUserByEmail, registration=user
+            )
         raise EmailAlreadyRegisteredError()
 
     validatePasswordLimits(user.password)

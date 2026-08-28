@@ -1,6 +1,7 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
+from sqlalchemy import text
 
 from . import models
 from .database import engine
@@ -8,6 +9,15 @@ from .routers import aiController, authController, imageController, resultContro
 
 try:
     models.Base.metadata.create_all(bind=engine)
+    # create_all does not add columns to an existing table. Keep this small
+    # forward migration local to PostgreSQL and independent from Orthanc.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                'ALTER TABLE "medicalImages" '
+                'ADD COLUMN IF NOT EXISTS "isStudy" BOOLEAN NOT NULL DEFAULT TRUE'
+            )
+        )
 except Exception as exc:
     # Log and continue — in development environments the DB may be unavailable.
     import traceback

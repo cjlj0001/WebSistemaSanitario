@@ -48,13 +48,13 @@ export default function ResultEditPanel({
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm"
               >
                 <option value="">Selecciona anomalia</option>
-                <option value="Atelectasis">Atelectasis</option>
-                <option value="Effusion">Effusion</option>
-                <option value="Emphysema">Emphysema</option>
-                <option value="No finding">No finding</option>
-                <option value="Nodule">Nodule</option>
-                <option value="Pneumonia">Pneumonia</option>
-                <option value="Pneumothorax">Pneumothorax</option>
+                <option value="Atelectasia">Atelectasia</option>
+                <option value="Derrame pleural">Derrame pleural</option>
+                <option value="Enfisema">Enfisema</option>
+                <option value="Sin hallazgos">Sin hallazgos</option>
+                <option value="Nódulo">Nódulo</option>
+                <option value="Neumonía">Neumonía</option>
+                <option value="Neumotórax">Neumotórax</option>
               </select>
               <input
                 type="number"

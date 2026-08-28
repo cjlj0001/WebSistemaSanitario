@@ -11,13 +11,13 @@ from torchvision import models, transforms
 
 
 CLASS_NAMES = [
-    "atelectasis",
-    "effusion",
-    "emphysema",
-    "no finding",
-    "nodule",
-    "pneumonia",
-    "pneumothorax"
+    "Atelectasia",
+    "Derrame pleural",
+    "Enfisema",
+    "Sin hallazgos",
+    "Nódulo",
+    "Neumonía",
+    "Neumotórax"
 ]
 
 MODEL_PATHS = [

@@ -4,7 +4,7 @@ import { ArrowLeft, CalendarDays, IdCard, Mail, UserRound } from "lucide-react"
 import api from "../servicio/api"
 
 function formatDate(value) {
-  if (!value) return "-"
+  if (!value) return "No disponible"
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("es-ES")
 }
@@ -53,7 +53,7 @@ export default function DataUser() {
             <div className="grid gap-4 sm:grid-cols-2">
               {fields.map(({ key, label, Icon, wide, format }) => (
                 <article key={key} className={`flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 ${wide ? "sm:col-span-2" : ""}`}>
-                  <div className="rounded-lg bg-emerald-100 p-2"><Icon className="h-5 w-5 text-emerald-700" /></div>
+                  <div className="rounded-lg bg-emerald-100 p-2">{React.createElement(Icon, { className: "h-5 w-5 text-emerald-700" })}</div>
                   <div className="min-w-0"><p className="text-xs uppercase tracking-wide text-slate-500">{label}</p><p className="truncate font-medium text-slate-800">{format ? format(user[key]) : user[key] || "-"}</p></div>
                 </article>
               ))}

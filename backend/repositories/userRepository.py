@@ -1,11 +1,13 @@
 ﻿from datetime import date, datetime, timezone
 import secrets
 
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..security import getPasswordHash
+
+GOOGLE_PLACEHOLDER_BIRTH_DATE = date(1970, 1, 1)
 
 
 def getUsers(db: Session, skip: int = 0, limit: int = 1000):
@@ -21,14 +23,15 @@ def getUserByDni(db: Session, dni: str):
 
 
 def getUserByEmail(db: Session, email: str):
-    return db.query(models.User).filter(models.User.email == email).first()
+    normalizedEmail = email.strip().lower()
+    return db.query(models.User).filter(func.lower(models.User.email) == normalizedEmail).first()
 
 
 def createUser(db: Session, user: schemas.UserCreate):
     dbUser = models.User(
         name=user.name,
         dni=user.dni,
-        email=user.email,
+        email=user.email.strip().lower(),
         password=getPasswordHash(user.password),
         fechaNacimiento=user.fechaNacimiento,
         rol=user.role,
@@ -58,7 +61,9 @@ def _buildGoogleDniCandidate(googleSub: str, suffixLength: int = 10) -> str:
     return f"GOOGLE-{tail.upper()}"
 
 
-def createGoogleUser(db: Session, name: str, email: str, googleSub: str):
+def createGoogleUser(
+    db: Session, name: str, email: str, googleSub: str, fechaNacimiento: date | None
+):
     dniCandidate = _buildGoogleDniCandidate(googleSub)
     attempt = 0
     while getUserByDni(db, dniCandidate) is not None:
@@ -68,9 +73,9 @@ def createGoogleUser(db: Session, name: str, email: str, googleSub: str):
     dbUser = models.User(
         name=name or "Usuario Google",
         dni=dniCandidate,
-        email=email,
+        email=email.strip().lower(),
         password=getPasswordHash(secrets.token_urlsafe(32)),
-        fechaNacimiento=date(1970, 1, 1),
+        fechaNacimiento=fechaNacimiento,
         rol="usuarioBase",
         termsAcceptedAt=datetime.now(timezone.utc),
     )
@@ -78,6 +83,39 @@ def createGoogleUser(db: Session, name: str, email: str, googleSub: str):
     db.commit()
     db.refresh(dbUser)
     return dbUser
+
+
+def isGoogleProvisionedUser(user: models.User) -> bool:
+    """Google-only accounts use a generated DNI until the user completes registration."""
+    return bool(user.dni and user.dni.startswith("GOOGLE-"))
+
+
+def needsGoogleBirthDate(user: models.User) -> bool:
+    """Identify accounts created before Google registration collected this field."""
+    return isGoogleProvisionedUser(user) and user.fechaNacimiento == GOOGLE_PLACEHOLDER_BIRTH_DATE
+
+
+def setGoogleBirthDate(db: Session, user: models.User, fechaNacimiento: date | None):
+    user.fechaNacimiento = fechaNacimiento
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def completeGoogleUserRegistration(
+    db: Session, user: models.User, registration: schemas.UserCreate
+):
+    """Replace Google placeholder data without changing the user's identity or studies."""
+    user.name = registration.name
+    user.dni = registration.dni
+    user.email = registration.email.strip().lower()
+    user.password = getPasswordHash(registration.password)
+    user.fechaNacimiento = registration.fechaNacimiento
+    # Keep the current role: completing the profile must never demote a user.
+    user.termsAcceptedAt = user.termsAcceptedAt or datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def acceptTerms(db: Session, user: models.User):
@@ -90,11 +128,24 @@ def acceptTerms(db: Session, user: models.User):
 def deleteUser(db: Session, userId: int) -> bool:
     user = db.query(models.User).filter(models.User.id == userId).first()
     if user:
-        db.query(models.MedicalImage).filter(models.MedicalImage.idUsuario == userId).delete(synchronize_session=False)
-        db.query(models.Result).filter(models.Result.idUsuario == userId).delete(synchronize_session=False)
-        db.delete(user)
-        db.commit()
-        return True
+        try:
+            # Account removal is entirely local: associated image, study and
+            # reset-token records disappear from PostgreSQL, never Orthanc.
+            db.query(models.PasswordResetToken).filter(
+                models.PasswordResetToken.userId == userId
+            ).delete(synchronize_session=False)
+            db.query(models.MedicalImage).filter(
+                models.MedicalImage.idUsuario == userId
+            ).delete(synchronize_session=False)
+            db.query(models.Result).filter(
+                models.Result.idUsuario == userId
+            ).delete(synchronize_session=False)
+            db.delete(user)
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            raise
     return False
 
 
@@ -192,6 +243,7 @@ def consumePasswordResetCode(db: Session, email: str, code: str, newPassword: st
                 models.PasswordResetToken.expiresAt > now,
             )
             .values(used=True)
+            .execution_options(synchronize_session=False)
         )
         if consumed.rowcount != 1:
             db.rollback()

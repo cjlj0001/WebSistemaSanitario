@@ -38,6 +38,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./backend:/app/backend
     environment:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
@@ -58,7 +60,7 @@ services:
       dockerfile: Dockerfile
       args:
 
-        VITE_BACKEND_URL: ${BACKEND_URL}
+        VITE_BACKEND_URL: ""
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
     container_name: frontend-wss
     restart: unless-stopped

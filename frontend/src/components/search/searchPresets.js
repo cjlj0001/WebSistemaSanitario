@@ -25,13 +25,13 @@ export const sharedImageTertiaryOptionsByFilter = {
         { value: "Resultado Manual", label: "Manual" }
     ],
     anomalia: [
-        { value: "Atelectasis", label: "Atelectasis" },
-        { value: "Effusion", label: "Effusion" },
-        { value: "Emphysema", label: "Emphysema" },
-        { value: "No finding", label: "No finding" },
-        { value: "Nodule", label: "Nodule" },
-        { value: "Pneumonia", label: "Pneumonia" },
-        { value: "Pneumothorax", label: "Pneumothorax" }
+        { value: "Atelectasia", label: "Atelectasia" },
+        { value: "Derrame pleural", label: "Derrame pleural" },
+        { value: "Enfisema", label: "Enfisema" },
+        { value: "Sin hallazgos", label: "Sin hallazgos" },
+        { value: "Nódulo", label: "Nódulo" },
+        { value: "Neumonía", label: "Neumonía" },
+        { value: "Neumotórax", label: "Neumotórax" }
     ],
     rangoEdad: [
         { value: "0-18", label: "0-18" },
@@ -110,7 +110,7 @@ export function matchesImageFilterValue(item, filterKey, rawValue) {
     return false
 }
 
-export function filterImagesBySearchValue(items, rawValue, searchScope = "imagen") {
+export function filterImagesBySearchValue(items, rawValue, searchScope = "imagen", exactText = false) {
     const source = Array.isArray(items) ? items : []
     const { searchText, filtersObj } = parseImageSearchValue(rawValue)
     const hasFilters = Object.keys(filtersObj || {}).length > 0
@@ -120,7 +120,13 @@ export function filterImagesBySearchValue(items, rawValue, searchScope = "imagen
     }
 
     const normalizedScope = searchScope === "estudio" ? "estudio" : "imagen"
-    const lowerText = searchText.toLowerCase()
+    const normalizedText = normalizeSearchToken(searchText)
+    const matchesTextValue = (value) => {
+        const normalizedValue = normalizeSearchToken(value)
+        return exactText
+            ? normalizedValue === normalizedText
+            : normalizedValue.includes(normalizedText)
+    }
 
     return source.filter((item) => {
         const matchesFilters = Object.entries(filtersObj || {}).some(([filterKey, rawValues]) => {
@@ -130,15 +136,19 @@ export function filterImagesBySearchValue(items, rawValue, searchScope = "imagen
 
         let matchesText = true
         if (searchText) {
+            const matchesUserName = matchesTextValue(item?.medicalImage?.nombreUsuario)
+            const matchesUserIdentifier = matchesTextValue(item?.medicalImage?.dniUsuario)
             if (normalizedScope === "estudio") {
-                matchesText = String(item?.medicalImage?.orthancStudyUid ?? "").toLowerCase().includes(lowerText)
+                // The user identifier is a DNI or a generated Google ID (GOOGLE-...).
+                // All of these fields identify a study from the unified search box.
+                matchesText = [
+                    item?.medicalImage?.nombreUsuario,
+                    item?.medicalImage?.dniUsuario,
+                    item?.medicalImage?.orthancStudyUid,
+                ].some(matchesTextValue)
             } else {
-                const searchType = /^\d+$/.test(searchText) ? "id" : "dni"
-                if (searchType === "id") {
-                    matchesText = String(item?.medicalImage?.id ?? "").toLowerCase().startsWith(lowerText)
-                } else {
-                    matchesText = String(item?.medicalImage?.dniUsuario ?? "").toLowerCase().startsWith(lowerText)
-                }
+                matchesText = matchesTextValue(item?.medicalImage?.id) ||
+                    matchesUserName || matchesUserIdentifier
             }
         }
 

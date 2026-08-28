@@ -1,5 +1,6 @@
 import React from "react"
 import UserBox from "./UserBox"
+import SearchEmptyState from "../search/SearchEmptyState"
 
 export default function UserResultsList({ users, loading, onSaveUser, onDeleteUser, showActions = true, showRole = true, compact = false }) {
   const hasUsers = users.length > 0
@@ -7,7 +8,7 @@ export default function UserResultsList({ users, loading, onSaveUser, onDeleteUs
 
   return (
     <div className={`${compact ? "mt-0" : "mt-6"} space-y-3`}>
-      {!loading && !hasUsers && <p className="text-gray-600">No hay usuarios para mostrar.</p>}
+      {!loading && !hasUsers && <SearchEmptyState />}
 
       {hasUsers && (
         <div>

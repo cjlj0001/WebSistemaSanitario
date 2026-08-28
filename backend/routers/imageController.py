@@ -5,6 +5,7 @@ from ..dependencies import getDb, getCurrentActiveUser
 from ..errors import NotFoundError, ValidationError
 from .. import schemas
 from ..services import imageService
+from ..services.aiRuntime import AiModelTransitionInProgressError
 
 router = APIRouter(prefix="/medicalImages", tags=["medicalImages"])
 
@@ -125,6 +126,8 @@ def createMedicalImageEndpoint(userDni: str, file: UploadFile = File(...), db: S
 
     try:
         return imageService.createMedicalImage(db=db, userDni=userDni, fileObj=file.file, filename=file.filename)
+    except AiModelTransitionInProgressError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValidationError as exc:
@@ -197,8 +200,8 @@ def deleteUnavailableMedicalImageEndpoint(imageId: int, db: Session = Depends(ge
 @router.delete("/{imageId}")
 def deleteMedicalImageEndpoint(imageId: int, db: Session = Depends(getDb), currentUser=Depends(_require_admin)):
     try:
-        imageService.deleteMedicalImage(db=db, imageId=imageId)
-        return {"deleted": True, "imageId": imageId}
+        deletion = imageService.deleteMedicalImage(db=db, imageId=imageId)
+        return {"deleted": True, "imageId": imageId, **deletion}
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:

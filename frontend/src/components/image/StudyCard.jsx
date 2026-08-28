@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import ResultBox from "../result/ResultBox"
 import api from "../../servicio/api"
 import ImagePainterModal from "./ImagePainterModal"
 import { buildTraceableImageFileName } from "./imageDownloadUtils"
+import { getUserIdentifierLabel } from "../user/userIdentifier"
 import { downloadStudyPdf } from "./studyPdfUtils"
 import {
   Image as ImageIcon,
@@ -23,6 +24,21 @@ function buildPreviewUrl(imageId, cacheKey = "") {
   return cacheKey ? `${base}?v=${encodeURIComponent(cacheKey)}` : base
 }
 
+function buildDownloadFileName(item, imageId, imageType, format) {
+  return buildTraceableImageFileName(
+    {
+      ...item,
+      medicalImage: {
+        ...item?.medicalImage,
+        id: imageId,
+        tipo: imageType,
+      },
+    },
+    format,
+    `imagen_${imageId}`
+  )
+}
+
 export default function StudyCard({ item, editable = true, onOpenPreview = null, allowStudyPdfDownload = false, onDeleteStudy = null }) {
   const [isPainterOpen, setIsPainterOpen] = useState(false)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
@@ -35,6 +51,7 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
   const cleanImageId = item?.medicalImage?.id
   const iaImageId = item?.result?.gradcamImageId || null
   const manualImageId = manualOverride.imageId || item?.result?.manualImageId || null
+  const studyUid = item?._orthancStudyUid || item?.medicalImage?.orthancStudyUid || ""
 
   const cleanPreviewUrl = useMemo(() => buildPreviewUrl(cleanImageId), [cleanImageId])
   const iaPreviewUrl = useMemo(() => buildPreviewUrl(iaImageId), [iaImageId])
@@ -45,12 +62,40 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
   const [showCleanDownloadMenu, setShowCleanDownloadMenu] = useState(false)
   const [showIaDownloadMenu, setShowIaDownloadMenu] = useState(false)
   const [showManualDownloadMenu, setShowManualDownloadMenu] = useState(false)
+  const cleanDownloadMenuRef = useRef(null)
+  const iaDownloadMenuRef = useRef(null)
+  const manualDownloadMenuRef = useRef(null)
 
-  const downloadDicom = async (imageId) => {
+  useEffect(() => {
+    const closeDownloadMenus = (event) => {
+      const clickedInsideMenu = [
+        cleanDownloadMenuRef.current,
+        iaDownloadMenuRef.current,
+        manualDownloadMenuRef.current,
+      ].some((menu) => menu?.contains(event.target))
+
+      if (!clickedInsideMenu) {
+        setShowCleanDownloadMenu(false)
+        setShowIaDownloadMenu(false)
+        setShowManualDownloadMenu(false)
+      }
+    }
+
+    document.addEventListener("mousedown", closeDownloadMenus)
+    return () => document.removeEventListener("mousedown", closeDownloadMenus)
+  }, [])
+
+  const toggleDownloadMenu = (menuName) => {
+    setShowCleanDownloadMenu((visible) => menuName === "clean" ? !visible : false)
+    setShowIaDownloadMenu((visible) => menuName === "ia" ? !visible : false)
+    setShowManualDownloadMenu((visible) => menuName === "manual" ? !visible : false)
+  }
+
+  const downloadDicom = async (imageId, imageType) => {
     const token = localStorage.getItem("accessToken") || ""
     if (!token) return alert("Debes iniciar sesión para descargar la imagen en DICOM")
     const url = `${api.defaults.baseURL}/medicalImages/${encodeURIComponent(imageId)}/download`
-    const filename = buildTraceableImageFileName(item, "dicom")
+    const filename = buildDownloadFileName(item, imageId, imageType, "dicom")
     try {
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       if (!resp.ok) return alert(`Error: ${resp.status}`)
@@ -68,10 +113,10 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
     }
   }
 
-  const downloadPng = async (imageId, cacheKey = "") => {
+  const downloadPng = async (imageId, imageType, cacheKey = "") => {
     const base = `${api.defaults.baseURL}/medicalImages/${encodeURIComponent(imageId)}/preview`
     const url = cacheKey ? `${base}?v=${encodeURIComponent(cacheKey)}` : base
-    const filename = buildTraceableImageFileName(item, "png")
+    const filename = buildDownloadFileName(item, imageId, imageType, "png")
     try {
       const resp = await fetch(url)
       if (!resp.ok) return alert(`Error: ${resp.status}`)
@@ -113,7 +158,7 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
           <div className="rounded-xl bg-white/15 p-3"><ImageIcon className="h-7 w-7 text-white" /></div>
           <div>
             <h2 className="text-xl font-bold text-white">Estudio médico</h2>
-            <p className="text-sm text-emerald-100">Estudio #{item?.medicalImage?.id ?? "-"}</p>
+            <p className="max-w-xl break-all text-xs text-emerald-100">UID del estudio: {studyUid || "No disponible"}</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
@@ -144,7 +189,7 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
 
       <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-6 md:grid-cols-3">
         <div className="flex items-center gap-3"><User className="h-5 w-5 text-emerald-600" /><div><p className="text-xs uppercase tracking-wide text-slate-500">Usuario</p><p className="font-medium text-slate-800">{item?.medicalImage?.nombreUsuario || "-"}</p></div></div>
-        <div className="flex items-center gap-3"><IdCard className="h-5 w-5 text-emerald-600" /><div><p className="text-xs uppercase tracking-wide text-slate-500">DNI</p><p className="font-medium text-slate-800">{item?.medicalImage?.dniUsuario || "-"}</p></div></div>
+        <div className="flex items-center gap-3"><IdCard className="h-5 w-5 text-emerald-600" /><div><p className="text-xs uppercase tracking-wide text-slate-500">{getUserIdentifierLabel(item?.medicalImage?.dniUsuario)}</p><p className="font-medium text-slate-800">{item?.medicalImage?.dniUsuario || "-"}</p></div></div>
         <div className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-emerald-600" /><div><p className="text-xs uppercase tracking-wide text-slate-500">Fecha de subida</p><p className="font-medium text-slate-800">{new Date(item?.medicalImage?.fechaSubida).toLocaleString()}</p></div></div>
       </div>
 
@@ -175,10 +220,10 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
               Sin imagen limpia
             </div>
           )}
-          <div className="relative mt-3">
+          <div ref={cleanDownloadMenuRef} className="relative mt-3">
             <button
               type="button"
-              onClick={() => setShowCleanDownloadMenu((s) => !s)}
+              onClick={() => toggleDownloadMenu("clean")}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white transition hover:bg-emerald-700"
             >
               <Download className="h-4 w-4" />
@@ -186,8 +231,8 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
             </button>
             {showCleanDownloadMenu && (
               <div className="absolute right-0 z-10 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700" onClick={() => { setShowCleanDownloadMenu(false); downloadDicom(cleanImageId) }}><Download className="h-4 w-4" /><span>Descargar DICOM</span></button>
-                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700" onClick={() => { setShowCleanDownloadMenu(false); downloadPng(cleanImageId) }}><ImageIcon className="h-4 w-4" /><span>Descargar PNG</span></button>
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700" onClick={() => { setShowCleanDownloadMenu(false); downloadDicom(cleanImageId, "Limpia") }}><Download className="h-4 w-4" /><span>Descargar DICOM</span></button>
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700" onClick={() => { setShowCleanDownloadMenu(false); downloadPng(cleanImageId, "Limpia") }}><ImageIcon className="h-4 w-4" /><span>Descargar PNG</span></button>
               </div>
             )}
           </div>
@@ -219,10 +264,10 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
               No hay resultado IA para este estudio
             </div>
           )}
-          <div className="relative mt-3">
+          <div ref={iaDownloadMenuRef} className="relative mt-3">
             <button
               type="button"
-              onClick={() => setShowIaDownloadMenu((s) => !s)}
+              onClick={() => toggleDownloadMenu("ia")}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 font-medium text-white transition hover:bg-sky-700"
             >
               <Download className="h-4 w-4" />
@@ -230,8 +275,8 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
             </button>
             {showIaDownloadMenu && (
               <div className="absolute right-0 z-10 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-sky-50 hover:text-sky-700" onClick={() => { setShowIaDownloadMenu(false); downloadDicom(iaImageId) }}><Download className="h-4 w-4" /><span>Descargar DICOM</span></button>
-                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-sky-50 hover:text-sky-700" onClick={() => { setShowIaDownloadMenu(false); downloadPng(iaImageId) }}><ImageIcon className="h-4 w-4" /><span>Descargar PNG</span></button>
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-sky-50 hover:text-sky-700" onClick={() => { setShowIaDownloadMenu(false); downloadDicom(iaImageId, "Resultado IA") }}><Download className="h-4 w-4" /><span>Descargar DICOM</span></button>
+                <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-sky-50 hover:text-sky-700" onClick={() => { setShowIaDownloadMenu(false); downloadPng(iaImageId, "Resultado IA") }}><ImageIcon className="h-4 w-4" /><span>Descargar PNG</span></button>
               </div>
             )}
           </div>
@@ -261,10 +306,10 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
             )}
           </div>
           <div className="mt-3">
-            <div className="relative">
+            <div ref={manualDownloadMenuRef} className="relative">
               <button
                 type="button"
-                onClick={() => setShowManualDownloadMenu((s) => !s)}
+                onClick={() => toggleDownloadMenu("manual")}
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2.5 font-medium text-white transition hover:bg-amber-700"
               >
                 <Download className="h-4 w-4" />
@@ -272,8 +317,8 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
               </button>
               {showManualDownloadMenu && (
                 <div className="absolute right-0 z-10 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-                  <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-amber-50 hover:text-amber-700" onClick={() => { setShowManualDownloadMenu(false); downloadDicom(manualImageId) }}><Download className="h-4 w-4" /><span>Descargar DICOM</span></button>
-                  <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-amber-50 hover:text-amber-700" onClick={() => { setShowManualDownloadMenu(false); downloadPng(manualImageId, manualOverride.version) }}><ImageIcon className="h-4 w-4" /><span>Descargar PNG</span></button>
+                  <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-amber-50 hover:text-amber-700" onClick={() => { setShowManualDownloadMenu(false); downloadDicom(manualImageId, "Resultado Manual") }}><Download className="h-4 w-4" /><span>Descargar DICOM</span></button>
+                  <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-amber-50 hover:text-amber-700" onClick={() => { setShowManualDownloadMenu(false); downloadPng(manualImageId, "Resultado Manual", manualOverride.version) }}><ImageIcon className="h-4 w-4" /><span>Descargar PNG</span></button>
                 </div>
               )}
             </div>

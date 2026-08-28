@@ -15,6 +15,7 @@ export default function Admin() {
     const [aiModels, setAiModels] = useState([])
     const [activeAiModel, setActiveAiModel] = useState("")
     const [aiLoading, setAiLoading] = useState(false)
+    const [aiTransitioning, setAiTransitioning] = useState(false)
     const [pendingAiModel, setPendingAiModel] = useState(null)
     const [aiMessage, setAiMessage] = useState("")
     const [aiError, setAiError] = useState("")
@@ -40,6 +41,7 @@ export default function Admin() {
 
     const [showDeletePanel, setShowDeletePanel] = useState(false)
     const [showEditUserPanel, setShowEditUserPanel] = useState(false)
+    const [deleteConfirmation, setDeleteConfirmation] = useState(null)
 
     const clearMessages = useCallback(() => {
         setError("")
@@ -54,11 +56,19 @@ export default function Admin() {
             const models = Array.isArray(response.data?.models) ? response.data.models : []
             setAiModels(models)
             setActiveAiModel(response.data?.activeModelKey ?? "")
+            const transitioning = Boolean(response.data?.isTransitioning)
+            setAiTransitioning(transitioning)
+            if (transitioning) {
+                setAiMessage("Se está completando un cambio de modelo. Las nuevas predicciones se reanudarán automáticamente al finalizar.")
+            } else {
+                setAiMessage("")
+            }
         } catch (err) {
             const detail = err?.response?.data?.detail
             setAiError(detail || "No se pudo obtener la lista de IA disponibles")
             setAiModels([])
             setActiveAiModel("")
+            setAiTransitioning(false)
         } finally {
             setAiLoading(false)
         }
@@ -188,20 +198,28 @@ export default function Admin() {
         }
     }
 
-    const deleteImage = async (imageId) => {
+    const deleteImage = async (imageId, confirmed = false) => {
         clearMessages()
         const normalizedImageId = String(imageId || "").trim()
         if (!normalizedImageId) {
             setError("No se ha encontrado el identificador de la imagen")
             return false
         }
-        if (!window.confirm(`¿Borrar definitivamente la imagen #${normalizedImageId}?`)) return false
+        if (!confirmed) {
+            setDeleteConfirmation({ type: "image", id: normalizedImageId })
+            return false
+        }
 
         setLoading(true)
         try {
-            await api.delete(`/medicalImages/${encodeURIComponent(normalizedImageId)}`)
-            setNotice("Imagen borrada correctamente")
-            setImages((prev) => (Array.isArray(prev) ? prev.filter((item) => String(item?.medicalImage?.id) !== normalizedImageId) : prev))
+            const response = await api.delete(`/medicalImages/${encodeURIComponent(normalizedImageId)}`)
+            const refreshedImages = await api.get("/medicalImages")
+            setImages(Array.isArray(refreshedImages.data) ? refreshedImages.data : [])
+            setNotice(
+                response.data?.studyDissolved
+                    ? "Imagen borrada; el estudio se ha eliminado y las imágenes restantes quedan sueltas."
+                    : "Imagen borrada correctamente"
+            )
             return true
         } catch (fetchError) {
             const detail = fetchError?.response?.data?.detail
@@ -212,14 +230,17 @@ export default function Admin() {
         }
     }
 
-    const deleteStudy = async (orthancStudyUid) => {
+    const deleteStudy = async (orthancStudyUid, confirmed = false) => {
         clearMessages()
         const normalizedOrthancStudyUid = String(orthancStudyUid || "").trim()
         if (!normalizedOrthancStudyUid) {
             setError("No se ha encontrado el orthancStudyUid del estudio")
             return
         }
-        if (!window.confirm("¿Borrar definitivamente este estudio y todas sus imágenes?")) return
+        if (!confirmed) {
+            setDeleteConfirmation({ type: "study", id: normalizedOrthancStudyUid })
+            return false
+        }
 
         setLoading(true)
         try {
@@ -238,6 +259,18 @@ export default function Admin() {
         }
     }
 
+    const confirmDeletion = async () => {
+        const pendingDeletion = deleteConfirmation
+        if (!pendingDeletion || loading) return
+
+        setDeleteConfirmation(null)
+        if (pendingDeletion.type === "image") {
+            await deleteImage(pendingDeletion.id, true)
+            return
+        }
+        await deleteStudy(pendingDeletion.id, true)
+    }
+
     const activateAiModel = async (nextModelKey) => {
         if (!nextModelKey || nextModelKey === activeAiModel) {
             return
@@ -245,24 +278,28 @@ export default function Admin() {
 
         setAiLoading(true)
         setAiError("")
+        setAiTransitioning(true)
+        setAiMessage("El cambio está en curso. Se completarán las predicciones ya iniciadas antes de activar el nuevo modelo.")
         try {
             const response = await api.put("/api/ai/models/active", { modelKey: nextModelKey })
             const models = Array.isArray(response.data?.models) ? response.data.models : []
             setAiModels(models)
             setActiveAiModel(response.data?.activeModelKey ?? nextModelKey)
+            setAiTransitioning(Boolean(response.data?.isTransitioning))
             const selectedModel = models.find((model) => model.modelKey === (response.data?.activeModelKey ?? nextModelKey))
-            setAiMessage(`${selectedModel?.label ?? "La IA seleccionada"} está ahora en funcionamiento para las nuevas predicciones.`)
             setPendingAiModel(null)
+            setAiMessage(`${selectedModel?.label ?? "La IA seleccionada"} se ha activado correctamente y ya se utilizará en las nuevas predicciones.`)
         } catch (err) {
             const detail = err?.response?.data?.detail
             setAiError(detail || "No se pudo cambiar la IA activa")
         } finally {
             setAiLoading(false)
+            setAiTransitioning(false)
         }
     }
 
     const requestAiModelChange = (model) => {
-        if (aiLoading || model.modelKey === activeAiModel) return
+        if (aiLoading || aiTransitioning || model.modelKey === activeAiModel) return
         setAiError("")
         setAiMessage("")
         setPendingAiModel(model)
@@ -327,7 +364,7 @@ export default function Admin() {
                                     }`}
                                 />
 
-                                Buscar modelos
+                                Actualizar modelos
 
                             </button>
 
@@ -344,8 +381,8 @@ export default function Admin() {
                             <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
                                 <p>¿Seguro que quieres cambiar el modelo a <span className="font-semibold">{pendingAiModel.label}</span>? Se usará solo en las nuevas predicciones.</p>
                                 <div className="flex shrink-0 gap-2">
-                                    <button type="button" onClick={() => setPendingAiModel(null)} disabled={aiLoading} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60">Cancelar</button>
-                                    <button type="button" onClick={() => activateAiModel(pendingAiModel.modelKey)} disabled={aiLoading} className="rounded-lg bg-sky-600 px-3 py-2 font-semibold text-white hover:bg-sky-700 disabled:opacity-60">Sí, cambiar</button>
+                                    <button type="button" onClick={() => setPendingAiModel(null)} disabled={aiLoading || aiTransitioning} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60">Cancelar</button>
+                                    <button type="button" onClick={() => activateAiModel(pendingAiModel.modelKey)} disabled={aiLoading || aiTransitioning} className="rounded-lg bg-sky-600 px-3 py-2 font-semibold text-white hover:bg-sky-700 disabled:opacity-60">Sí, cambiar</button>
                                 </div>
                             </div>
                         )}
@@ -361,7 +398,7 @@ export default function Admin() {
                                             key={model.modelKey}
                                             type="button"
                                             onClick={() => requestAiModelChange(model)}
-                                            disabled={aiLoading || isActive}
+                                            disabled={aiLoading || aiTransitioning || isActive}
                                             className={`group flex w-full items-center gap-3 rounded-xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-sky-400 disabled:cursor-default ${
                                                 isActive
                                                     ? "border-sky-300 bg-sky-50 shadow-sm"
@@ -379,6 +416,13 @@ export default function Admin() {
                                         </button>
                                     )
                                 })}
+                            </div>
+                        )}
+
+                        {aiTransitioning && (
+                            <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                <RefreshCw className="h-5 w-5 shrink-0 animate-spin" aria-hidden="true" />
+                                <p>Actualizando el motor de IA. Las predicciones en curso se completarán antes de reanudar las nuevas solicitudes.</p>
                             </div>
                         )}
 
@@ -562,6 +606,29 @@ export default function Admin() {
                         </section>
                     )}
                 </div>
+                {deleteConfirmation && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="presentation">
+                        <div role="dialog" aria-modal="true" aria-labelledby="delete-confirmation-title" className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-600">Acción irreversible</p>
+                            <h2 id="delete-confirmation-title" className="mt-2 text-xl font-bold text-slate-900">
+                                {deleteConfirmation.type === "study" ? "¿Borrar este estudio?" : "¿Borrar esta imagen?"}
+                            </h2>
+                            <p className="mt-3 text-sm leading-6 text-slate-600">
+                                {deleteConfirmation.type === "study"
+                                    ? "Se eliminarán definitivamente el estudio y todas las imágenes que contiene. Esta acción no se puede deshacer."
+                                    : `Se eliminará definitivamente la imagen #${deleteConfirmation.id}. Esta acción no se puede deshacer.`}
+                            </p>
+                            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                                <button type="button" onClick={() => setDeleteConfirmation(null)} disabled={loading} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
+                                    Cancelar
+                                </button>
+                                <button type="button" onClick={confirmDeletion} disabled={loading} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-400">
+                                    {loading ? "Borrando..." : "Sí, borrar definitivamente"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
         </div>
     </div>
     )
