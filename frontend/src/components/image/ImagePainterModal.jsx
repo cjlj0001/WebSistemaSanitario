@@ -333,23 +333,21 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
 
     return (
     <div
-       className="fixed inset-0 z-50 bg-slate-100"
+       className="fixed inset-0 z-50 overflow-hidden bg-slate-100"
        >
-      <div
-        div className="flex h-screen w-screen flex-col overflow-hidden bg-white"
-       >
-        <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4">
-          <div className="flex items-center gap-4">
-            <div className="rounded-xl bg-white/15 p-3">
-              <ImageIcon className="h-7 w-7 text-white" />
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-white">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-3 sm:flex-nowrap sm:px-6 sm:py-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+            <div className="rounded-xl bg-white/15 p-2 sm:p-3">
+              <ImageIcon className="h-5 w-5 text-white sm:h-7 sm:w-7" />
             </div>
 
-            <div>
-              <h2 className="text-xl font-bold text-white">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-bold text-white sm:text-xl">
                 Editor de resultados médicos
               </h2>
 
-              <p className="text-sm text-emerald-100">
+              <p className="truncate text-xs text-emerald-100 sm:text-sm">
                 Imagen ID: {imageId}
               </p>
             </div>
@@ -357,16 +355,16 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
 
           <button
             onClick={onClose}
-            className="flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="flex shrink-0 items-center gap-2 rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:px-4"
           >
             <X className="h-4 w-4" />
             Cerrar
           </button>
         </div>
 
-        <div className="flex items-center gap-5 border-b border-slate-200 bg-slate-50 px-6 py-3 whitespace-nowrap">
+        <div className="flex max-h-[38dvh] shrink-0 flex-wrap items-center gap-2 overflow-y-auto border-b border-slate-200 bg-slate-50 px-3 py-2 sm:max-h-none sm:gap-5 sm:px-6 sm:py-3">
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <Palette className="h-4 w-4 text-emerald-600" />
 
             <span className="text-sm font-medium text-slate-700">
@@ -381,7 +379,7 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
             />
           </div>
 
-          <div className="flex items-center gap-2 border-l border-slate-200 pl-6">
+          <div className="flex items-center gap-2 border-0 pl-0 sm:border-l sm:border-slate-200 sm:pl-6">
             <button
               type="button"
               onClick={() => setTool("draw")}
@@ -398,7 +396,7 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
             </button>
           </div>
 
-          <label className="flex items-center gap-3">
+          <label className="flex items-center gap-2 sm:gap-3">
             <Brush className="h-4 w-4 text-emerald-600" />
 
             <span className="text-sm font-medium text-slate-700">
@@ -411,7 +409,7 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
               max="40"
               value={lineWidth}
               onChange={(e) => setLineWidth(Number(e.target.value))}
-              className="w-44 accent-emerald-600"
+              className="w-24 accent-emerald-600 sm:w-44"
             />
 
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-100 text-sm font-semibold text-emerald-700">
@@ -419,12 +417,12 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
             </div>
           </label>
 
-          <div className="ml-auto flex flex-wrap gap-3">
+          <div className="flex w-full flex-wrap gap-2 lg:ml-auto lg:w-auto">
 
             <button
               type="button"
               onClick={clearDrawing}
-              className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 sm:px-4"
             >
               <Trash2 className="h-3 w-3" />
               Limpiar trazos
@@ -478,7 +476,7 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
           </div>
         </div>
 
-        <div className="relative flex-1 overflow-hidden bg-slate-100 p-4">
+        <div className="relative min-h-0 flex-1 overflow-hidden bg-slate-100 p-2 sm:p-4">
           <div ref={viewportRef} className="relative h-full w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-inner">
             <canvas
               ref={canvasRef}
@@ -500,7 +498,7 @@ export default function ImagePainterModal({ isOpen, imageUrl, imageId, onClose, 
         </div>
 
         {(imageError || saveError || saveSuccess) && (
-          <div className="space-y-3 border-t border-slate-200 bg-white px-6 py-4">
+          <div className="space-y-3 border-t border-slate-200 bg-white px-3 py-3 sm:px-6 sm:py-4">
 
             {imageError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

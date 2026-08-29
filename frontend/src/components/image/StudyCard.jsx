@@ -328,7 +328,7 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
 
       {editable && (
         <div className="mx-auto mt-6 w-full max-w-7xl">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 sm:p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               
               <div className="min-w-0">
@@ -336,7 +336,7 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
                   Edición manual
                 </h3>
 
-                <p className="text-sm text-slate-500">
+                <p className="break-words text-sm text-slate-500">
                   Realice o modifique el mapa de calor sobre la imagen original.
                 </p>
               </div>
@@ -344,7 +344,7 @@ export default function StudyCard({ item, editable = true, onOpenPreview = null,
               <button
                 type="button"
                 onClick={() => setIsPainterOpen(true)}
-                className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 font-medium text-white shadow transition hover:bg-amber-600"
+                className="flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-500 px-3 py-3 text-sm font-medium text-white shadow transition hover:bg-amber-600 sm:w-auto sm:px-5 sm:text-base"
               >
                 <Pencil className="h-5 w-5" />
                 Editar mapa de calor
